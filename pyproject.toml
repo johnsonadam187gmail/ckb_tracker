@@ -1,0 +1,14 @@
+[project]
+name = "ckb-tracker"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.127.0",
+    "passlib[bcrypt]>=1.7.4",
+    "psycopg2-binary>=2.9.11",
+    "sqlalchemy>=2.0.45",
+    "streamlit>=1.52.2",
+    "uvicorn>=0.40.0",
+]
