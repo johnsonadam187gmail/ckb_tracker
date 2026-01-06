@@ -1,5 +1,5 @@
 from .database import Base
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Float, Text, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Float, Text, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
@@ -42,6 +42,9 @@ class ClassSchedule(Base):
     time = Column(String(20))
     description = Column(Text)
     weighting = Column(Float, default=1.0)
+
+    gym_id = Column(Integer, ForeignKey("gym_locations.id"))
+    class_type_id = Column(Integer, ForeignKey("class_types.id"))
     
     # SCD Tracking Columns
     is_current = Column(Boolean, default=True)
@@ -51,6 +54,41 @@ class ClassSchedule(Base):
 
     # Relationship to attendance
     attendance_records = relationship("FactAttendance", back_populates="class_info")
+    # Relationships
+    gym = relationship("GymLocation")
+    type = relationship("ClassType")
+
+class Term(Base):
+    __tablename__ = "terms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    term_name = Column(String, unique=True, index=True) # e.g., "Winter Term 2026"
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class TermTarget(Base):
+    __tablename__ = "term_targets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    term_id = Column(Integer, ForeignKey("terms.id"))
+    rank = Column(String)  # e.g., "White Belt", "Blue Belt"
+    target = Column(Float) # The "arbitrary number" set by instructor
+    
+    term = relationship("Term")
+
+class GymLocation(Base):
+    __tablename__ = "gym_locations"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True) # e.g., "Downtown HQ"
+    address = Column(String)
+
+class ClassType(Base):
+    __tablename__ = "class_types"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+
+
 
 class FactAttendance(Base):
     __tablename__ = "attendance"
@@ -64,6 +102,10 @@ class FactAttendance(Base):
     class_id = Column(Integer, ForeignKey("classes.id"))
     attendance_date = Column(Date, default=lambda: datetime.now(timezone.utc).date())
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint('user_uuid', 'class_id', 'attendance_date', name='_user_class_date_uc'),
+    )
 
     # This relationship now knows how to "join" because of the ForeignKey above
     user = relationship("User", back_populates="attendance_records")

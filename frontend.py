@@ -152,50 +152,79 @@ if users_resp.status_code == 200:
                 st.error(f"Connection error: {e}")
 
 with tabs[1]:
-    st.header("Schedule a New Class")
-    with st.form("new_class_form"):
-        c1, c2 = st.columns(2)
-        with c1:
-            name = st.text_input("Class Name")
-            day = st.selectbox("Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
-        with c2:
-            time = st.text_input("Time (e.g. 18:30)")
-            weight = st.number_input("Weighting", value=1.0, step=0.1)
-        
-        desc = st.text_area("Description")
-        
-        if st.form_submit_button("Create Class"):
-            payload = {"class_name": name, "day": day, "time": time, "weighting": weight, "description": desc}
-            res = requests.post(f"{BASE_URL}/classes/", data=payload)
-            if res.status_code == 200:
-                st.success("Class Added!")
-                st.rerun()
+    st.header("Class Management")
 
-    # View existing classes
-    st.subheader("Current Timetable")
-class_res = requests.get(f"{BASE_URL}/classes/")
+    # --- SECTION 1: CREATE NEW CLASS ---
+    with st.expander("➕ Add New Class to Timetable"):
+        with st.form("new_class_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                name = st.text_input("Class Name")
+                day = st.selectbox("Day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], key="create_day")
+            with c2:
+                time = st.text_input("Time (e.g. 18:30)")
+                weight = st.number_input("Weighting", value=1.0, step=0.1, key="create_weight")
+            
+            desc = st.text_area("Description", key="create_desc")
+            
+            if st.form_submit_button("Create Class"):
+                payload = {"class_name": name, "day": day, "time": time, "weighting": weight, "description": desc}
+                res = requests.post(f"{BASE_URL}/classes/", data=payload)
+                if res.status_code == 200:
+                    st.success("Class Added!")
+                    st.rerun()
 
-if class_res.status_code == 200:
-    classes_data = class_res.json()
-    
-    # Check if we actually have data
-    if classes_data:
-        df_classes = pd.DataFrame(classes_data)
-        
-        # Define the columns we want to show
-        display_cols = ["day", "time", "class_name", "weighting"]
-        
-        # Ensure these columns actually exist in the dataframe before filtering
-        # (This prevents crashes if the API schema changes)
-        existing_cols = [c for c in display_cols if c in df_classes.columns]
-        
-        st.dataframe(df_classes[existing_cols], use_container_width=True, hide_index=True)
-    else:
-        # Friendly message instead of a red error box
-        st.info("The timetable is currently empty. Add your first class above!")
-else:
-    st.error("Could not connect to the backend to fetch classes.")
+    st.divider()
 
+    # --- SECTION 2: UPDATE EXISTING CLASS (SCD) ---
+    with st.expander("➕ Edit Existing Class"):
+        st.subheader("📝 Edit Existing Class")
+        
+        # Fetch current active classes for the selection
+        class_res = requests.get(f"{BASE_URL}/classes/")
+        if class_res.status_code == 200:
+            classes_data = class_res.json()
+            
+            if classes_data:
+                # Create a label that helps identify the class in the dropdown
+                # We store the whole dict in the value to make pre-populating easy
+                class_map = {f"{c['day']} {c['time']} - {c['class_name']}": c for c in classes_data}
+                selected_label = st.selectbox("Select a class to modify", options=list(class_map.keys()))
+                selected_class = class_map[selected_label]
+
+                # Form to perform the SCD Update
+                with st.form("edit_class_form"):                    
+                    u_c1, u_c2 = st.columns(2)
+                    with u_c1:
+                        u_name = st.text_input("Class Name", value=selected_class['class_name'])
+                        # Find index of current day to set as default selectbox value
+                        days_list = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                        day_idx = days_list.index(selected_class['day'])
+                        u_day = st.selectbox("Day", options=days_list, index=day_idx)
+                    with u_c2:
+                        u_time = st.text_input("Time", value=selected_class['time'])
+                        u_weight = st.number_input("Weighting", value=float(selected_class['weighting']), step=0.1)
+                    
+                    u_desc = st.text_area("Description", value=selected_class['description'] or "")
+
+                    if st.form_submit_button("Update Class"):
+                        update_payload = {
+                            "class_name": u_name,
+                            "day": u_day,
+                            "time": u_time,
+                            "weighting": u_weight,
+                            "description": u_desc
+                        }
+                        # Send PUT request to trigger the SCD logic in the backend
+                        put_res = requests.put(f"{BASE_URL}/classes/{selected_class['class_uuid']}", data=update_payload)
+                        
+                        if put_res.status_code == 200:
+                            st.success(f"Updated {u_name}! Old records preserved, new version created.")
+                            st.rerun()
+                        else:
+                            st.error("Failed to update class.")
+            else:
+                st.info("No classes found to edit. Create one above first!")
 # Inside your tabs logic
 with tabs[2]: # Attendance Tab
     st.header("Daily Attendance")
@@ -228,9 +257,22 @@ with tabs[2]: # Attendance Tab
                     "class_id": class_id,
                     "attendance_date": str(selected_date)
                 }
-                post_res = requests.post(f"{BASE_URL}/attendance/", data=payload)
-                if post_res.status_code == 200:
-                    st.toast(f"{m['first_name']} checked in!")
+                
+                try:
+                    post_res = requests.post(f"{BASE_URL}/attendance/", data=payload)
+                    
+                    if post_res.status_code == 200:
+                        st.toast(f"✅ {m['first_name']} checked in successfully!", icon="🥋")
+                    
+                    elif post_res.status_code == 400:
+                        # This catches the UniqueConstraint violation from the backend
+                        st.warning(f"⚠️ {m['first_name']} is already checked into this class.")
+                    
+                    else:
+                        st.error(f"Error: {post_res.json().get('detail', 'Unknown error occurred')}")
+                
+                except Exception as e:
+                    st.error(f"Connection failed: {e}")
 
 
-##TODO Class update, get attendance, get attendance by class/date, get attendance by user
+##TODO Class update, get attendance, get attendance by class/date, get attendance by user, analytics page for viewing attendance records
