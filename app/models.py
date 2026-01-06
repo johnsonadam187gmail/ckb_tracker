@@ -1,5 +1,6 @@
 from .database import Base
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Float, Text, Boolean, UniqueConstraint
+from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
@@ -47,8 +48,8 @@ class ClassSchedule(Base):
     class_type_id = Column(Integer, ForeignKey("class_types.id"))
     
     # SCD Tracking Columns
-    is_current = Column(Boolean, default=True)
-    effective_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    is_current = Column(Boolean, default=True, server_default="1")
+    effective_date = Column(DateTime, default=lambda: datetime.now(timezone.utc), server_default=func.now())
     end_date = Column(DateTime, nullable=True)
     created_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -87,7 +88,6 @@ class ClassType(Base):
     __tablename__ = "class_types"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
-
 
 
 class FactAttendance(Base):

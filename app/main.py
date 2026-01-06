@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from . import models, database, schemas
+from .database import get_db
 
 # Import your local modules
 from app import models, database, schemas
@@ -141,27 +142,19 @@ def update_user(
     return new_version
 
 @app.post("/classes/", response_model=schemas.ClassResponse)
-def create_class(
-    class_name: str = Form(...),
-    day: str = Form(...),
-    time: str = Form(...),
-    weighting: float = Form(1.0),
-    description: Optional[str] = Form(None),
-    db: Session = Depends(database.get_db)
-):
-    new_class = models.ClassSchedule(
-        class_uuid=str(uuid.uuid4()),
-        class_name=class_name,
-        day=day,
-        time=time,
-        weighting=weighting,
-        description=description,
-        is_current=True
+def create_class(class_data: schemas.ClassCreate, db: Session = Depends(get_db)):
+    # Generate the anchor UUID for this new class identity
+    new_uuid = str(uuid.uuid4())
+    
+    db_class = models.ClassSchedule(
+        **class_data.model_dump(),
+        class_uuid=new_uuid,
+        is_current=True  # <--- Explicitly set this here
     )
-    db.add(new_class)
+    db.add(db_class)
     db.commit()
-    db.refresh(new_class)
-    return new_class
+    db.refresh(db_class)
+    return db_class
 
 # GET route filtered for current classes
 @app.get("/classes/", response_model=list[schemas.ClassResponse])
@@ -222,6 +215,28 @@ def get_targets_by_term(term_id: int, db: Session = Depends(database.get_db)):
     if not targets:
         return [] # Return empty list if instructor hasn't set targets for this term yet
     return targets
+
+@app.post("/term-targets/", response_model=schemas.TermTargetResponse)
+def set_term_target(target_data: schemas.TermTargetCreate, db: Session = Depends(database.get_db)):
+    # 1. Check if a target for this specific rank and term already exists
+    existing_target = db.query(models.TermTarget).filter(
+        models.TermTarget.term_id == target_data.term_id,
+        models.TermTarget.rank == target_data.rank
+    ).first()
+
+    if existing_target:
+        # 2. Update the existing record if it exists
+        existing_target.target = target_data.target
+        db.commit()
+        db.refresh(existing_target)
+        return existing_target
+    
+    # 3. Otherwise, create a new record
+    db_target = models.TermTarget(**target_data.model_dump())
+    db.add(db_target)
+    db.commit()
+    db.refresh(db_target)
+    return db_target
 
 # 3. PUT to update a specific target by ID
 @app.put("/term-targets/{target_id}", response_model=schemas.TermTargetResponse)
