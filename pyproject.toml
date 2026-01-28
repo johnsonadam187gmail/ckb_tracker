@@ -11,6 +11,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2.3",
     "pandas>=2.3.3",
     "passlib[bcrypt]>=1.7.4",
+    "plotly>=6.5.0",
     "psycopg2-binary>=2.9.11",
     "pydantic[email]>=2.12.5",
     "python-dateutil>=2.9.0.post0",
@@ -20,5 +21,5 @@ dependencies = [
     "psycopg2-binary>=2.9.11",
     "sqlalchemy>=2.0.45",
     "streamlit>=1.52.2",
-    "uvicorn>=0.40.0",
+    "uvicorn[standard]>=0.40.0",
 ]
