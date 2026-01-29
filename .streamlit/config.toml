@@ -1,15 +1,27 @@
 [theme]
-# Primary accent color: The signature "CKB Green" 
-primaryColor = #c91a2b
+# Base theme (dark by default, can be toggled via UI)
+base = "dark"
 
-# Background color: Deep black/dark grey as seen on the site
+# Primary accent color: CKB Red
+primaryColor = "#c91a2b"
+
+# Background color: Deep black for dark mode
 backgroundColor = "#0B0E0F"
 
-# Secondary background color: Slightly lighter grey for sidebars/cards
+# Secondary background color: Charcoal for sidebars/cards
 secondaryBackgroundColor = "#191B1F"
 
-# Main text color: High contrast white/off-white
+# Main text color: High contrast white
 textColor = "#FFFFFF"
 
-# Font family: Clean, athletic sans-serif
+# Font family: Modern sans-serif (Inter)
 font = "sans serif"
+
+[browser]
+# Gather usage stats
+gatherUsageStats = false
+
+[server]
+# Enable CORS for local development
+enableCORS = false
+enableXsrfProtection = false

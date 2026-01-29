@@ -22,3 +22,11 @@ INSTRUCTIONS:
 4. Ensure the User update logic handles role changes without IntegrityErrors.
 
 DO NOT write partial code. Provide the full file structures." --model openrouter/google/gemini-2.5-pro
+
+## UI Features
+- **Modern Glassmorphism Design**: Translucent elements with backdrop blur for depth and elegance
+- **Dynamic Theme Toggle**: Light/dark mode switching with persistent state across all pages
+- **Smooth Animations**: Hover effects, ripple clicks, page transitions, and toast notifications
+- **Responsive Layout**: Mobile-friendly design with 768px breakpoint optimization
+- **CKB Branding**: Red primary color (#c91a2b), Inter font family, professional color palette
+- **Accessibility**: WCAG AA compliant contrast ratios, clear focus states, semantic color usage

@@ -74,6 +74,10 @@ ckb_tracker/
 │   ├── models.py        # SQLAlchemy models
 │   ├── schemas.py       # Pydantic schemas
 │   └── database.py      # DB connection & session
+├── assets/              # UI styling assets
+│   ├── style.css        # Main component styles
+│   ├── dark-theme.css   # Dark mode color palette
+│   └── light-theme.css  # Light mode color palette
 ├── pages/               # Streamlit additional pages
 │   ├── 2_Analytics.py
 │   └── 3_Settings.py
@@ -298,3 +302,310 @@ db.query(models.User).filter(models.User.is_current == True).all()
 3. **Routes Last** - Add endpoints to `app/main.py`
 4. **Frontend Integration** - Update Streamlit pages to consume API
 5. **Test Manually** - No automated tests yet; test via UI or curl/Postman
+
+## UI Styling Guidelines
+
+### Theme System
+The application uses a hybrid light/dark theme system with dynamic CSS loading and glassmorphism design.
+
+#### Theme Architecture
+- **Main Stylesheet**: `assets/style.css` - Component styles and theme-agnostic variables
+- **Dark Theme**: `assets/dark-theme.css` - Dark mode color palette (default)
+- **Light Theme**: `assets/light-theme.css` - Light mode color palette
+- **Streamlit Config**: `.streamlit/config.toml` - Base theme settings
+
+#### Brand Colors
+- **Primary (CKB Red)**: `#c91a2b` - Used for CTAs, accents, and branding
+- **Secondary (Blue)**: `#2196F3` - Used for secondary actions and info
+- **Success (Green)**: `#4CAF50` - Used for form submissions and success states
+- **Font**: Inter (Google Fonts) - Modern, clean sans-serif
+
+#### Theme Toggle Implementation
+Each Streamlit page must include theme support:
+
+**Main Page (Attendance.py):**
+```python
+from pathlib import Path
+
+# Initialize theme in session state
+if "theme" not in st.session_state:
+    st.session_state.theme = "dark"
+
+# Function to load CSS files
+def load_css():
+    """Load custom CSS files for styling"""
+    css_files = [
+        "assets/style.css",
+        "assets/dark-theme.css" if st.session_state.get("theme", "dark") == "dark" 
+        else "assets/light-theme.css",
+    ]
+    
+    css_content = ""
+    for css_file in css_files:
+        css_path = Path(__file__).parent / css_file
+        if css_path.exists():
+            with open(css_path) as f:
+                css_content += f.read()
+    
+    # Apply theme data attribute to root
+    theme = st.session_state.get("theme", "dark")
+    css_content = f"""
+    <style>
+    :root {{
+        data-theme: "{theme}";
+    }}
+    {css_content}
+    </style>
+    """
+    
+    st.markdown(css_content, unsafe_allow_html=True)
+
+# Load CSS
+load_css()
+
+# Theme toggle in sidebar (main page only)
+with st.sidebar:
+    current_theme = st.session_state.get("theme", "dark")
+    if st.button("🌙" if current_theme == "dark" else "☀️", key="theme_toggle"):
+        st.session_state.theme = "light" if current_theme == "dark" else "dark"
+        st.rerun()
+```
+
+**Subpages (pages/2_Analytics.py, pages/3_Settings.py):**
+```python
+# For pages in pages/ directory, adjust path by going up one level
+css_path = Path(__file__).parent.parent / css_file
+```
+
+### CSS Variable System
+Use CSS variables defined in `assets/style.css` for consistent theming:
+
+#### Spacing
+- `--spacing-xs`: 4px
+- `--spacing-sm`: 8px
+- `--spacing-md`: 16px
+- `--spacing-lg`: 24px
+- `--spacing-xl`: 32px
+- `--spacing-2xl`: 48px
+
+#### Border Radius
+- `--radius-sm`: 4px
+- `--radius-md`: 8px
+- `--radius-lg`: 12px
+- `--radius-xl`: 16px
+- `--radius-full`: 9999px
+
+#### Transitions
+- `--transition-fast`: 150ms (hover effects)
+- `--transition-base`: 250ms (standard animations)
+- `--transition-slow`: 350ms (page transitions)
+
+#### Theme-Specific Colors
+Colors are defined per theme and automatically applied via CSS variables:
+- `--primary-color`, `--secondary-color`, `--success-color`
+- `--bg-primary`, `--bg-secondary`, `--bg-tertiary`
+- `--text-primary`, `--text-secondary`, `--text-tertiary`
+- `--border-color`, `--border-hover`
+- `--card-background`, `--card-border`, `--card-hover-background`
+- `--input-background`, `--input-border`, `--input-focus-ring`
+
+### Component Styling Guidelines
+
+#### Buttons
+Streamlit buttons automatically styled with these variants:
+
+**Primary Button (Red)** - Use for main CTAs:
+```python
+# Styled with red gradient (#c91a2b → #a01523)
+# Hover: Lifts up, enhanced glow effect
+# Click: Ripple animation
+```
+
+**Secondary Button (Blue)** - Use for alternative actions:
+```python
+# Styled with blue gradient (#2196F3 → #1976D2)
+```
+
+**Form Submit Button (Green)** - Automatic for form submissions:
+```python
+with st.form("example_form"):
+    # ... form fields
+    st.form_submit_button("Submit")  # Green gradient (#4CAF50 → #388E3C)
+```
+
+**Default Buttons** - Theme-aware styling:
+```python
+st.button("Click Me")  # Uses theme background/border colors
+```
+
+**Button Effects:**
+- Hover: `translateY(-2px)` lift effect
+- Click: Ripple animation (expanding circle)
+- All: `var(--transition-fast)` smooth transitions
+
+#### Form Inputs
+All input fields are automatically styled:
+- **Background**: Glassmorphism effect with theme colors
+- **Border**: 2px solid, theme-aware
+- **Focus State**: Primary color border + 3px focus ring
+- **Transition**: Smooth border/shadow transitions
+
+```python
+# All these get automatic styling:
+st.text_input("Name")
+st.text_area("Comments")
+st.selectbox("Rank", options)
+st.date_input("Date")
+st.file_uploader("Upload")
+```
+
+#### Cards & Containers
+Metric cards and containers have glassmorphism effects:
+```python
+st.metric("Total Points", "150")  # Auto-styled with glass background
+```
+
+**Card Effects:**
+- Background: Semi-transparent with backdrop blur
+- Hover: Enhanced shadow + slight lift
+- Border: 1px solid with theme color
+
+#### Data Display
+
+**DataFrames:**
+```python
+st.dataframe(df)  # Auto-styled with:
+# - Header background with bold text
+# - Alternating row colors
+# - Hover highlight
+# - Rounded corners
+```
+
+**Plotly Charts:**
+Use the theme helper function for consistent chart styling:
+```python
+def get_chart_theme():
+    """Get Plotly template based on current theme"""
+    theme = st.session_state.get("theme", "dark")
+    if theme == "dark":
+        return {
+            "template": "plotly_dark",
+            "colors": ["#c91a2b", "#2196F3", "#4CAF50", "#FFA726", "#9C27B0"],
+            "paper_bgcolor": "rgba(25, 27, 31, 0.8)",
+            "plot_bgcolor": "rgba(15, 17, 21, 0.5)",
+            "font_color": "#FFFFFF"
+        }
+    else:
+        return {
+            "template": "plotly_white",
+            "colors": ["#c91a2b", "#1976D2", "#388E3C", "#F57C00", "#7B1FA2"],
+            "paper_bgcolor": "rgba(255, 255, 255, 0.9)",
+            "plot_bgcolor": "rgba(245, 245, 245, 0.5)",
+            "font_color": "#212121"
+        }
+
+# Apply to charts:
+theme = get_chart_theme()
+fig = px.bar(df, template=theme["template"], color_discrete_sequence=theme["colors"])
+```
+
+#### Alerts & Notifications
+
+**Streamlit Alerts** - Automatically styled with colored borders:
+```python
+st.success("Success message")  # Green left border
+st.warning("Warning message")  # Orange left border
+st.error("Error message")      # Red left border
+st.info("Info message")        # Blue left border
+```
+
+**Toast Notifications:**
+```python
+st.toast("Member checked in!", icon="✅")  # Slide-in animation from right
+```
+
+### Glassmorphism Effects
+The UI uses glassmorphism (frosted glass effect) extensively:
+- **Sidebar**: Semi-transparent with 16px backdrop blur
+- **Cards**: Glass background with border
+- **Containers**: Layered transparency for depth
+
+Elements with glassmorphism automatically have:
+- `backdrop-filter: blur(16px)`
+- Semi-transparent background (rgba)
+- 1px border with theme color
+- Smooth transitions on hover
+
+### Animation Guidelines
+
+**Built-in Animations:**
+- **fadeIn**: Page content on load (350ms)
+- **slideInRight**: Toast notifications (250ms)
+- **scaleIn**: Modal/popup appearances
+- **pulse**: Loading states
+
+**Hover Effects:**
+- Buttons/Cards: Lift up 2px
+- Interactive elements: Enhanced shadow
+- All: Smooth cubic-bezier easing
+
+### Responsive Design
+Mobile breakpoint at 768px automatically adjusts:
+- Reduced spacing/padding
+- Smaller font sizes (h1: 3xl → 2xl)
+- Compact button sizing
+- Stack columns vertically
+
+No manual media queries needed - the CSS handles it.
+
+### Accessibility Standards
+
+**Color Contrast:**
+- Dark theme: White text on dark backgrounds (high contrast)
+- Light theme: Dark text on light backgrounds (high contrast)
+- All meet WCAG AA standard (4.5:1 for body text)
+
+**Interactive Elements:**
+- All buttons have visible focus states
+- Form inputs show focus ring
+- Hover states provide clear visual feedback
+
+**Semantic Colors:**
+- Red: Errors, danger, primary actions
+- Green: Success, completion
+- Blue: Information, secondary actions
+- Orange: Warnings, caution
+
+### Adding New Streamlit Pages
+When creating new pages:
+
+1. **Copy CSS Loading Function** from existing pages
+2. **Adjust Path** if in subdirectory: `Path(__file__).parent.parent / css_file`
+3. **Initialize Theme State**: `if "theme" not in st.session_state: st.session_state.theme = "dark"`
+4. **Load CSS Early**: Call `load_css()` before any UI elements
+5. **Use Plotly Theme Helper**: For consistent chart styling
+
+### Modifying Styles
+To customize the UI:
+
+**Global Changes** → Edit `assets/style.css`:
+- Spacing, transitions, shadows
+- Component base styles
+- Animations
+
+**Theme Colors** → Edit theme files:
+- `assets/dark-theme.css` for dark mode colors
+- `assets/light-theme.css` for light mode colors
+
+**Never modify** `.streamlit/config.toml` colors directly - use CSS variables instead for theme switching to work.
+
+### Best Practices
+
+1. **Always use CSS variables** for colors/spacing instead of hardcoded values
+2. **Test both themes** when making style changes
+3. **Maintain glassmorphism** - use semi-transparent backgrounds with blur
+4. **Keep animations smooth** - use provided transition variables
+5. **Respect hover states** - all interactive elements should have visual feedback
+6. **Mobile-first mindset** - ensure layouts work on small screens
+7. **Consistent spacing** - use spacing variables, not arbitrary pixel values
+8. **Theme persistence** - session state ensures theme survives page navigation
