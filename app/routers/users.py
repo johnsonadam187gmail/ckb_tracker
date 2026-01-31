@@ -131,6 +131,17 @@ def update_user(
     old_record.end_date = now
     old_record.updated_date = now
 
+    # Parse last_graded_date if provided
+    parsed_graded_date = old_record.last_graded_date
+    if last_graded_date:
+        try:
+            parsed_graded_date = parser.parse(last_graded_date).date()
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid last_graded_date format. Use YYYY-MM-DD or similar.",
+            )
+
     # 3. CREATE the new record
     new_version = models.User(
         user_uuid=user_uuid,
@@ -141,7 +152,7 @@ def update_user(
         nicknames=nicknames,
         password_hash=old_record.password_hash,
         profile_image_url=old_record.profile_image_url,
-        last_graded_date=old_record.last_graded_date,
+        last_graded_date=parsed_graded_date,
         comments=old_record.comments,
         is_current=True,
         effective_date=datetime.now(timezone.utc),
