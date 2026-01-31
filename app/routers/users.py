@@ -78,6 +78,20 @@ def create_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    # Assign default "Student" role
+    student_role = db.query(models.Role).filter(models.Role.name == "Student").first()
+    if student_role:
+        user_role = models.UserRole(
+            user_uuid=new_user.user_uuid,
+            role_id=student_role.id,
+            is_current=True,
+            effective_date=datetime.now(timezone.utc),
+            created_date=datetime.now(timezone.utc),
+        )
+        db.add(user_role)
+        db.commit()
+
     return new_user
 
 

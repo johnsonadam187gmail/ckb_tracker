@@ -7,7 +7,16 @@ from fastapi.staticfiles import StaticFiles
 
 from . import models, database
 from .config import settings
-from .routers import users, classes, attendance, terms, gyms, class_types, term_targets
+from .routers import (
+    users,
+    classes,
+    attendance,
+    terms,
+    gyms,
+    class_types,
+    term_targets,
+    roles,
+)
 
 # Initialize the FastAPI app
 app = FastAPI(title=settings.api_title, version=settings.api_version)
@@ -23,6 +32,7 @@ app.include_router(terms.router)
 app.include_router(gyms.router)
 app.include_router(class_types.router)
 app.include_router(term_targets.router)
+app.include_router(roles.router)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")

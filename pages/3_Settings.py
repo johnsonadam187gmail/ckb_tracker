@@ -235,6 +235,110 @@ if check_password():
                                     "nicknames": up_nick,
                                 }
                                 handle_request("PUT", "users", update_data)
+
+                        # --- ROLE MANAGEMENT SECTION ---
+                        st.divider()
+                        st.subheader("👤 Role Management")
+
+                        # Fetch current roles
+                        roles_res = requests.get(
+                            f"{BASE_URL}/roles/user/{member['user_uuid']}"
+                        )
+                        current_roles = (
+                            roles_res.json() if roles_res.status_code == 200 else []
+                        )
+
+                        # Display current roles as badges
+                        if current_roles:
+                            role_names = [r["role_name"] for r in current_roles]
+                            st.info(f"**Current Roles:** {' • '.join(role_names)}")
+                        else:
+                            st.warning("No roles assigned")
+
+                        # Role assignment form
+                        all_roles_res = requests.get(f"{BASE_URL}/roles/")
+                        all_roles = (
+                            all_roles_res.json()
+                            if all_roles_res.status_code == 200
+                            else []
+                        )
+
+                        with st.form("role_assignment_form"):
+                            st.caption("Select all roles this member should have")
+
+                            selected_role_ids = []
+                            for role in all_roles:
+                                is_current = any(
+                                    r["role_id"] == role["id"] for r in current_roles
+                                )
+                                if st.checkbox(
+                                    f"{role['name']} - {role['description']}",
+                                    value=is_current,
+                                    key=f"role_{role['id']}",
+                                ):
+                                    selected_role_ids.append(role["id"])
+
+                            if st.form_submit_button("Update Roles"):
+                                update_payload = {"role_ids": selected_role_ids}
+                                try:
+                                    update_res = requests.put(
+                                        f"{BASE_URL}/roles/user/{member['user_uuid']}",
+                                        json=update_payload,
+                                    )
+                                    if update_res.status_code == 200:
+                                        st.success("✅ Roles updated successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error(
+                                            f"Error: {update_res.json().get('detail', 'Unknown error')}"
+                                        )
+                                except Exception as e:
+                                    st.error(f"Connection failed: {e}")
+
+                        # Role history (collapsible)
+                        with st.expander("📜 View Role History"):
+                            history_res = requests.get(
+                                f"{BASE_URL}/roles/user/{member['user_uuid']}/history"
+                            )
+                            if history_res.status_code == 200:
+                                history_data = history_res.json()
+                                history_df = pd.DataFrame(history_data["history"])
+
+                                if not history_df.empty:
+                                    # Format dates
+                                    history_df["effective_date"] = pd.to_datetime(
+                                        history_df["effective_date"]
+                                    ).dt.strftime("%Y-%m-%d %H:%M")
+                                    history_df["end_date"] = history_df[
+                                        "end_date"
+                                    ].apply(
+                                        lambda x: pd.to_datetime(x).strftime(
+                                            "%Y-%m-%d %H:%M"
+                                        )
+                                        if x
+                                        else "Present"
+                                    )
+
+                                    display_df = history_df[
+                                        [
+                                            "role_name",
+                                            "effective_date",
+                                            "end_date",
+                                            "is_current",
+                                        ]
+                                    ]
+                                    display_df.columns = [
+                                        "Role",
+                                        "Assigned Date",
+                                        "Removed Date",
+                                        "Current",
+                                    ]
+
+                                    st.dataframe(
+                                        display_df, hide_index=True, width="stretch"
+                                    )
+                                else:
+                                    st.info("No role history available")
             else:
                 st.error(f"Error fetching users: {u_res.text}")
 

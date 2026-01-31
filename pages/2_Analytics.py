@@ -113,6 +113,24 @@ selected_term_name = st.sidebar.selectbox("Filter by Term", options=term_options
 user = user_map[selected_student_name]
 user_uuid = user["user_uuid"]
 
+# Check user's roles
+user_roles_res = requests.get(f"{BASE_URL}/roles/user/{user_uuid}")
+user_roles = user_roles_res.json() if user_roles_res.status_code == 200 else []
+user_role_names = [r["role_name"] for r in user_roles]
+
+# Determine analytics view
+is_teacher = "Teacher" in user_role_names
+
+# Add analytics type selector
+if is_teacher:
+    analytics_type = st.sidebar.radio(
+        "View Analytics As:",
+        ["Student", "Teacher"],
+        help="Select which analytics view to display",
+    )
+else:
+    analytics_type = "Student"
+
 # Date range logic
 if selected_term_name != "All Time":
     term = term_map[selected_term_name]
@@ -142,9 +160,10 @@ try:
 except Exception as e:
     st.error(f"Connection Error: {e}")
 
-# --- 4. KPI & GAUGE CHART ---
-st.header(f"Performance: {selected_student_name} ({user['rank']})")
-kpi1, kpi2, chart_col = st.columns([1, 1, 2])
+# --- 4. ANALYTICS DISPLAY (BASED ON TYPE) ---
+if analytics_type == "Student":
+    st.header(f"Student Performance: {selected_student_name} ({user['rank']})")
+    kpi1, kpi2, chart_col = st.columns([1, 1, 2])
 
 # Initialize totals
 total_points = 0.0
@@ -298,5 +317,94 @@ if attendance_data:
 
     st.dataframe(df_display, width="stretch", hide_index=True)
 
-else:
-    st.info("No attendance data to display for the selected criteria.")
+    else:
+        st.info("No attendance data to display for the selected criteria.")
+
+elif analytics_type == "Teacher":
+    st.header(f"Teacher Performance: {selected_student_name}")
+    
+    # Fetch teacher class summary
+    try:
+        teacher_res = requests.get(
+            f"{BASE_URL}/attendance/teacher/{user_uuid}/classes",
+            params={"start_date": start_dt, "end_date": end_dt}
+        )
+        
+        if teacher_res.status_code == 200:
+            teacher_data = teacher_res.json()
+            
+            if teacher_data:
+                df_teacher = pd.DataFrame(teacher_data)
+                
+                # KPIs
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Classes Taught", len(df_teacher))
+                with col2:
+                    st.metric("Total Students", int(df_teacher['student_count'].sum()))
+                with col3:
+                    st.metric("Avg Students/Class", f"{df_teacher['student_count'].mean():.1f}")
+                
+                st.divider()
+                
+                # Class breakdown
+                col_left, col_right = st.columns(2)
+                
+                with col_left:
+                    st.subheader("Classes Taught by Type")
+                    class_summary = df_teacher.groupby('class_name').agg({
+                        'class_date': 'count',
+                        'student_count': 'sum'
+                    }).reset_index()
+                    class_summary.columns = ['Class Type', 'Sessions', 'Total Students']
+                    
+                    theme = get_chart_theme()
+                    fig = px.bar(
+                        class_summary,
+                        x='Class Type',
+                        y='Sessions',
+                        title="Classes Taught by Type",
+                        color='Total Students',
+                        color_continuous_scale='Blues',
+                        template=theme['template']
+                    )
+                    fig.update_layout(
+                        paper_bgcolor=theme['paper_bgcolor'],
+                        plot_bgcolor=theme['plot_bgcolor'],
+                        font_color=theme['font_color']
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col_right:
+                    st.subheader("Student Attendance Trend")
+                    df_teacher['class_date'] = pd.to_datetime(df_teacher['class_date'])
+                    daily_students = df_teacher.groupby('class_date')['student_count'].sum().reset_index()
+                    
+                    theme = get_chart_theme()
+                    fig_line = px.line(
+                        daily_students,
+                        x='class_date',
+                        y='student_count',
+                        title="Students per Day",
+                        template=theme['template']
+                    )
+                    fig_line.update_layout(
+                        paper_bgcolor=theme['paper_bgcolor'],
+                        plot_bgcolor=theme['plot_bgcolor'],
+                        font_color=theme['font_color']
+                    )
+                    st.plotly_chart(fig_line, use_container_width=True)
+                
+                # Detailed log
+                st.divider()
+                st.subheader("📋 Teaching Log")
+                df_teacher['class_date'] = pd.to_datetime(df_teacher['class_date']).dt.strftime('%Y-%m-%d')
+                display_df = df_teacher[['class_date', 'class_name', 'student_count']]
+                display_df.columns = ['Date', 'Class', 'Students']
+                st.dataframe(display_df, hide_index=True, width="stretch")
+            else:
+                st.info("No teaching records found for this period")
+        else:
+            st.error("Failed to fetch teacher analytics")
+    except Exception as e:
+        st.error(f"Error fetching teacher analytics: {e}")

@@ -12,7 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, foreign
 from datetime import datetime, timezone
 
 
@@ -43,8 +43,48 @@ class User(Base):
         onupdate=datetime.now(timezone.utc),
     )
 
-    # Relationship to attendance
-    attendance_records = relationship("FactAttendance", back_populates="user")
+    # Relationships
+    attendance_records = relationship(
+        "FactAttendance", back_populates="user", foreign_keys="FactAttendance.user_uuid"
+    )
+    user_roles = relationship("UserRole", back_populates="user")
+
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+
+    # Relationships
+    user_roles = relationship("UserRole", back_populates="role")
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_uuid = Column(
+        String, ForeignKey("users.user_uuid"), index=True, nullable=False
+    )
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+
+    # SCD Type 2 Tracking
+    is_current = Column(Boolean, default=True, index=True)
+    effective_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    end_date = Column(DateTime, nullable=True)
+    created_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_date = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    user = relationship("User", back_populates="user_roles")
+    role = relationship("Role", back_populates="user_roles")
+    attendance_records = relationship("FactAttendance", back_populates="user_role")
 
 
 class ClassSchedule(Base):
@@ -115,11 +155,16 @@ class FactAttendance(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # ADD THE FOREIGN KEY HERE
-    # It must point to 'tablename.column_name'
-    user_uuid = Column(String, ForeignKey("users.user_uuid"), index=True)
+    # Foreign Keys
+    user_uuid = Column(
+        String, ForeignKey("users.user_uuid"), index=True, nullable=False
+    )
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    teacher_uuid = Column(
+        String, ForeignKey("users.user_uuid"), nullable=True, index=True
+    )
+    user_role_id = Column(Integer, ForeignKey("user_roles.id"), nullable=True)
 
-    class_id = Column(Integer, ForeignKey("classes.id"))
     attendance_date = Column(Date, default=lambda: datetime.now(timezone.utc).date())
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -129,6 +174,10 @@ class FactAttendance(Base):
         ),
     )
 
-    # This relationship now knows how to "join" because of the ForeignKey above
-    user = relationship("User", back_populates="attendance_records")
+    # Relationships
+    user = relationship(
+        "User", foreign_keys=[user_uuid], back_populates="attendance_records"
+    )
+    teacher = relationship("User", foreign_keys=[teacher_uuid])
     class_info = relationship("ClassSchedule", back_populates="attendance_records")
+    user_role = relationship("UserRole", back_populates="attendance_records")

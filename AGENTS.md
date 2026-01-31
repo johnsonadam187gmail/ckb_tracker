@@ -47,7 +47,7 @@ python reset_db.py
 ```
 
 ### Testing
-**Note:** No test suite currently exists. When creating tests:
+The project now has a comprehensive test suite. Run tests with:
 ```bash
 # Install pytest first
 pip install pytest pytest-cov
@@ -265,12 +265,159 @@ db.query(models.User).filter(models.User.is_current == True).all()
 
 ### Core Entities
 1. **User** - Members with SCD Type 2 versioning
-2. **ClassSchedule** - Classes with SCD Type 2 versioning
-3. **FactAttendance** - Attendance fact table with unique constraint
-4. **Term** - Training terms/semesters
-5. **TermTarget** - Performance targets per rank per term
-6. **GymLocation** - Training locations
-7. **ClassType** - Class categories (Gi, No-Gi, etc.)
+2. **Role** - Fixed role types (Student, Teacher, Admin)
+3. **UserRole** - Many-to-many user-role assignments with SCD Type 2 versioning
+4. **ClassSchedule** - Classes with SCD Type 2 versioning
+5. **FactAttendance** - Attendance fact table with teacher tracking
+6. **Term** - Training terms/semesters
+7. **TermTarget** - Performance targets per rank per term
+8. **GymLocation** - Training locations
+9. **ClassType** - Class categories (Gi, No-Gi, etc.)
+
+### Role System Architecture
+
+**Overview:** The application implements a role-based system for tracking user permissions and responsibilities with complete historical tracking.
+
+**Three Fixed Roles:**
+- **Student** (Default) - Assigned automatically on user creation
+- **Teacher** - Instructors who teach classes
+- **Admin** - Administrators with full access (future RBAC implementation)
+
+**Key Design Principles:**
+- Many-to-many relationship: Users can have multiple roles simultaneously
+- Historical tracking: All role assignments/removals are tracked with SCD Type 2
+- Teacher tracking: Attendance records capture which teacher taught each class
+- Default behavior: New users automatically receive Student role
+
+**Database Schema:**
+
+```python
+# Role Table (Static reference)
+class Role(Base):
+    id = Integer (PK)
+    name = String (Unique: Student, Teacher, Admin)
+    description = Text
+
+# UserRole Table (SCD Type 2 junction table)
+class UserRole(Base):
+    id = Integer (PK)
+    user_uuid = String (FK → users.user_uuid)
+    role_id = Integer (FK → roles.id)
+    is_current = Boolean (Indexed)
+    effective_date = DateTime
+    end_date = DateTime (Nullable)
+    created_date = DateTime
+    updated_date = DateTime
+
+# FactAttendance (Enhanced with role tracking)
+class FactAttendance(Base):
+    id = Integer (PK)
+    user_uuid = String (FK → users.user_uuid) # Student attending
+    class_id = Integer (FK → classes.id)
+    teacher_uuid = String (FK → users.user_uuid) # Teacher who taught
+    user_role_id = Integer (FK → user_roles.id) # Role at time of attendance
+    attendance_date = Date
+    created_at = DateTime
+    UNIQUE(user_uuid, class_id, attendance_date)
+```
+
+**Role Assignment Flow:**
+
+1. **User Creation:**
+   ```python
+   # Automatically assigns Student role
+   POST /users/ → Creates user → Assigns Student role
+   ```
+
+2. **Role Management (Settings Page Only):**
+   ```python
+   # Get current roles
+   GET /roles/user/{user_uuid}
+   
+   # Update roles (SCD Type 2 pattern)
+   PUT /roles/user/{user_uuid}
+   Body: {"role_ids": [1, 2]}  # Assign Student + Teacher
+   
+   # View role history
+   GET /roles/user/{user_uuid}/history
+   ```
+
+3. **Attendance Check-In:**
+   ```python
+   # Always records as Student, includes optional teacher
+   POST /attendance/
+   Body: {
+       "user_uuid": "student-uuid",
+       "class_id": 1,
+       "attendance_date": "2026-01-31",
+       "teacher_uuid": "teacher-uuid"  # Optional
+   }
+   ```
+
+**Role Update Pattern (SCD Type 2):**
+
+```python
+# Example: Change user from Student to Teacher
+# 1. Get current roles
+current_roles = db.query(UserRole).filter(
+    UserRole.user_uuid == uuid,
+    UserRole.is_current == True
+).all()
+
+# 2. Expire removed roles
+for role in current_roles:
+    if role.role_id not in new_role_ids:
+        role.is_current = False
+        role.end_date = datetime.now(timezone.utc)
+
+# 3. Add new roles
+for role_id in new_role_ids:
+    if role_id not in current_role_ids:
+        new_assignment = UserRole(
+            user_uuid=uuid,
+            role_id=role_id,
+            is_current=True,
+            effective_date=datetime.now(timezone.utc),
+            created_date=datetime.now(timezone.utc),
+        )
+        db.add(new_assignment)
+```
+
+**Analytics & Reporting:**
+
+- **Student Analytics:** Tracks attendance, points, targets (existing functionality)
+- **Teacher Analytics:** New view showing:
+  - Classes taught
+  - Student counts per class
+  - Teaching history over time
+  - Accessible via: `GET /attendance/teacher/{teacher_uuid}/classes`
+
+**Frontend Integration:**
+
+1. **Attendance Page (`Attendance.py`):**
+   - Teacher selection dropdown (fetches users with Teacher role)
+   - Optional field - not required for check-in
+   
+2. **Settings Page (`pages/3_Settings.py`):**
+   - Role management section per user
+   - Multi-select checkboxes for role assignment
+   - Role history viewer (collapsible)
+   
+3. **Analytics Page (`pages/2_Analytics.py`):**
+   - Automatic role detection
+   - Switches between Student/Teacher analytics views
+   - Radio button selector if user has both roles
+
+**API Endpoints:**
+
+```
+GET    /roles/                          # List all roles
+GET    /roles/user/{user_uuid}          # Get user's current roles
+GET    /roles/user/{user_uuid}/history  # Get role history
+PUT    /roles/user/{user_uuid}          # Update user roles
+GET    /roles/users/by-role/{role_name} # Get all users with role
+GET    /attendance/teacher/{uuid}/classes # Teacher analytics
+```
 
 ### Key Constraints
 - `FactAttendance`: Unique constraint on (user_uuid, class_id, attendance_date)
