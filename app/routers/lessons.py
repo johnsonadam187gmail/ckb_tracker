@@ -26,8 +26,14 @@ def create_lesson(lesson_data: schemas.LessonCreate, db: Session = Depends(get_d
     if not curriculum:
         raise HTTPException(status_code=404, detail="Curriculum not found")
 
-    # Create lesson
-    db_lesson = models.Lesson(**lesson_data.model_dump())
+    # Create lesson - convert HttpUrl to string
+    lesson_dict = lesson_data.model_dump()
+    if lesson_dict.get("lesson_plan_url"):
+        lesson_dict["lesson_plan_url"] = str(lesson_dict["lesson_plan_url"])
+    if lesson_dict.get("video_folder_url"):
+        lesson_dict["video_folder_url"] = str(lesson_dict["video_folder_url"])
+
+    db_lesson = models.Lesson(**lesson_dict)
 
     try:
         db.add(db_lesson)
@@ -79,8 +85,13 @@ def update_lesson(
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    # Update fields
+    # Update fields - convert HttpUrl to string
     update_dict = update_data.model_dump(exclude_unset=True)
+    if "lesson_plan_url" in update_dict and update_dict["lesson_plan_url"]:
+        update_dict["lesson_plan_url"] = str(update_dict["lesson_plan_url"])
+    if "video_folder_url" in update_dict and update_dict["video_folder_url"]:
+        update_dict["video_folder_url"] = str(update_dict["video_folder_url"])
+
     for key, value in update_dict.items():
         setattr(lesson, key, value)
 

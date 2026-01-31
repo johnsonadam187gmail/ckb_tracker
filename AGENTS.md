@@ -542,9 +542,192 @@ DELETE /class-instances/{id}          # Delete instance (fails if attendance exi
 - **Benefit**: Teachers teach classes, not individual students
 - **Backward Compatibility**: Old `teacher_uuid` field kept in FactAttendance but deprecated
 
+### Curriculum Management Architecture
+
+**Overview:** The application implements a comprehensive curriculum management system that allows admins to organize lessons into structured curricula and assign them to class instances.
+
+**Key Concepts:**
+- **Curriculum**: A collection of lessons for a specific class (1:1 relationship with ClassSchedule)
+- **Lesson**: A reusable unit of instruction within a curriculum (title, description, URLs)
+- **Curriculum-Lesson Assignment**: Lessons linked to class instances for tracking progression
+
+**Why Curriculum Management?**
+- Organize training into structured learning paths
+- Track curriculum progression over time
+- Reuse lesson content across multiple class dates
+- Centralize lesson plans and video resources
+- Enable systematic skill development tracking
+
+**Database Schema:**
+
+```python
+class Curriculum(Base):
+    __tablename__ = "curricula"
+    
+    id = Integer (PK)
+    class_id = Integer (FK → classes.id, NOT NULL, Unique, Indexed)
+    name = String(200, NOT NULL)
+    description = Text (Nullable)
+    created_at = DateTime
+    updated_at = DateTime
+    
+    # Relationships
+    class_schedule = relationship("ClassSchedule")
+    lessons = relationship("Lesson", back_populates="curriculum", cascade="all, delete-orphan")
+
+class Lesson(Base):
+    __tablename__ = "lessons"
+    
+    id = Integer (PK)
+    curriculum_id = Integer (FK → curricula.id, NOT NULL, Indexed)
+    title = String(200, NOT NULL)
+    description = Text (Nullable)
+    lesson_plan_url = String(500, Nullable)  # Validated as HttpUrl
+    video_folder_url = String(500, Nullable)  # Validated as HttpUrl
+    created_at = DateTime
+    updated_at = DateTime
+    
+    # Relationships
+    curriculum = relationship("Curriculum", back_populates="lessons")
+
+# ClassInstance updated to reference lessons
+class ClassInstance(Base):
+    lesson_id = Integer (FK → lessons.id, Nullable, Indexed)
+    lesson = relationship("Lesson")
+```
+
+**Data Flow:**
+
+1. **Curriculum Creation:**
+   - Admin creates curriculum for a class (Settings → Curricula tab)
+   - Name auto-generated from class name if not provided
+   - One curriculum per class (enforced at database level)
+
+2. **Lesson Management:**
+   - Admin adds lessons to curriculum (Settings → Lesson Library tab)
+   - Lessons include title, description, lesson plan URL, video folder URL
+   - URLs validated for proper format (HttpUrl)
+   - Multiple lessons per curriculum
+
+3. **Lesson Assignment:**
+   - Admin assigns lesson to class instance on specific date
+   - Links lesson to ClassInstance record
+   - Visible to teachers via Teacher page
+
+4. **Teacher View:**
+   - Teachers see assigned lesson for their classes
+   - Access lesson plan and video folder links
+   - View student roster for class occurrence
+
+**Curriculum Workflow:**
+
+```python
+# 1. Create curriculum for class
+POST /curricula/
+Body: {
+    "class_id": 1,
+    "name": "Fundamentals 1 Curriculum",  # Optional, auto-generated
+    "description": "Core techniques for beginners"
+}
+
+# 2. Add lessons to curriculum
+POST /lessons/
+Body: {
+    "curriculum_id": 1,
+    "title": "Guard Passing Fundamentals",
+    "description": "Learn basic guard passing techniques",
+    "lesson_plan_url": "https://docs.google.com/document/d/abc123",
+    "video_folder_url": "https://drive.google.com/drive/folders/xyz789"
+}
+
+# 3. Assign lesson to class instance
+POST /class-instances/
+Body: {
+    "class_id": 1,
+    "class_date": "2026-02-01",
+    "lesson_id": 1,
+    "teacher_uuid": "teacher-uuid"
+}
+
+# 4. Query lessons by curriculum
+GET /lessons/?curriculum_id=1
+
+# 5. Update lesson details
+PUT /lessons/{lesson_id}
+Body: {
+    "title": "Updated Title",
+    "video_folder_url": "https://drive.google.com/updated"
+}
+```
+
+**Frontend Integration:**
+
+1. **Settings Page (`pages/3_Settings.py`):**
+   - **📖 Curricula Tab**:
+     - Create curriculum for classes without one
+     - Auto-generates name as "[Class Name] Curriculum"
+     - Edit/delete curriculum (with cascade protection)
+     - View all curricula in table
+   
+   - **📝 Lesson Library Tab**:
+     - Create lessons within curriculum context
+     - Add title, description, lesson plan URL, video folder URL
+     - Filter lessons by curriculum
+     - Edit/delete lessons
+     - Validates URLs (Google Drive, Dropbox, any HTTP/HTTPS)
+   
+   - **📅 Assign to Dates Tab**:
+     - Assign lessons to specific class instance dates
+     - Select class, date, lesson, and teacher
+     - View assignments in table format
+
+2. **Teacher Page (`pages/4_Teacher.py`):**
+   - After student roster section
+   - "📚 Lesson Information" section
+   - Displays: Lesson title, lesson plan button, video folder button
+   - Shows "No lesson available" if not assigned
+   - Read-only for teachers
+
+**API Endpoints:**
+
+```
+POST   /curricula/                     # Create curriculum
+GET    /curricula/                     # List all curricula (filter by class_id)
+GET    /curricula/{id}                 # Get curriculum by ID
+PUT    /curricula/{id}                 # Update curriculum
+DELETE /curricula/{id}                 # Delete curriculum (cascades to lessons)
+
+POST   /lessons/                       # Create lesson
+GET    /lessons/                       # List all lessons (filter by curriculum_id)
+GET    /lessons/{id}                   # Get lesson by ID
+PUT    /lessons/{id}                   # Update lesson
+DELETE /lessons/{id}                   # Delete lesson
+```
+
+**URL Validation:**
+- Pydantic `HttpUrl` type validates lesson plan and video folder URLs
+- Accepts: `http://`, `https://` protocols only
+- Supports: Google Drive, Dropbox, OneDrive, any valid web URL
+- Frontend: Shows helpful hints and examples
+- Backend: Converts HttpUrl objects to strings before database storage
+
+**Key Features:**
+- **1:1 Curriculum-Class Relationship**: Each class has exactly one curriculum
+- **Cascade Delete**: Deleting curriculum removes all associated lessons
+- **Auto-Name Generation**: Curriculum name auto-generated from class name if not provided
+- **URL Validation**: Ensures lesson plan and video URLs are valid
+- **Reusable Lessons**: Lessons can be assigned to multiple class instances
+- **Historical Tracking**: Created/updated timestamps for audit trail
+
+**Test Coverage:**
+- `tests/test_curricula.py`: 14 tests covering curriculum CRUD operations
+- `tests/test_lessons.py`: 16 tests covering lesson CRUD operations
+- `tests/test_curriculum_integration.py`: 8 integration tests for complete workflow
+
 ### Key Constraints
 - `FactAttendance`: Unique constraint on (user_uuid, class_id, attendance_date)
 - `ClassInstance`: Unique constraint on (class_id, class_date)
+- `Curriculum.class_id`: Unique constraint (one curriculum per class)
 - `User.email`: Indexed but not unique (due to versioning)
 - `User.user_uuid`: Unique identifier for user identity
 - `ClassSchedule.class_uuid`: Unique identifier for class identity
