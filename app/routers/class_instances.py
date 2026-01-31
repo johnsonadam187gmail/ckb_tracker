@@ -13,6 +13,50 @@ from ..database import get_db
 router = APIRouter(prefix="/class-instances", tags=["class-instances"])
 
 
+def _populate_response_fields(instance: models.ClassInstance) -> dict:
+    """Helper to populate response fields from relationships.
+
+    Extracts data from joined tables (ClassSchedule, User, Lesson) and
+    returns a dict suitable for ClassInstanceResponse.
+    """
+    data = {
+        "id": instance.id,
+        "class_id": instance.class_id,
+        "class_date": instance.class_date,
+        "teacher_uuid": instance.teacher_uuid,
+        "lesson_id": instance.lesson_id,
+        "created_at": instance.created_at,
+        "updated_at": instance.updated_at,
+    }
+
+    # Populate class name
+    data["class_name"] = (
+        instance.class_schedule.class_name if instance.class_schedule else None
+    )
+
+    # Populate teacher name
+    if instance.teacher_uuid and instance.teacher:
+        data["teacher_name"] = (
+            f"{instance.teacher.first_name} {instance.teacher.last_name}"
+        )
+    else:
+        data["teacher_name"] = None
+
+    # Populate lesson details from Lesson table
+    if instance.lesson:
+        data["lesson_title"] = instance.lesson.title
+        data["lesson_description"] = instance.lesson.description
+        data["lesson_plan_url"] = instance.lesson.lesson_plan_url
+        data["video_folder_url"] = instance.lesson.video_folder_url
+    else:
+        data["lesson_title"] = None
+        data["lesson_description"] = None
+        data["lesson_plan_url"] = None
+        data["video_folder_url"] = None
+
+    return data
+
+
 @router.post("/", response_model=schemas.ClassInstanceResponse)
 def create_class_instance(
     instance_data: schemas.ClassInstanceCreate, db: Session = Depends(get_db)
@@ -45,17 +89,8 @@ def create_class_instance(
         db.commit()
         db.refresh(existing)
 
-        # Populate joined fields for response
-        response_data = schemas.ClassInstanceResponse.model_validate(existing)
-        response_data.class_name = (
-            existing.class_schedule.class_name if existing.class_schedule else None
-        )
-        if existing.teacher_uuid and existing.teacher:
-            response_data.teacher_name = (
-                f"{existing.teacher.first_name} {existing.teacher.last_name}"
-            )
-
-        return response_data
+        # Return response with populated fields
+        return schemas.ClassInstanceResponse(**_populate_response_fields(existing))
     else:
         # Create new instance
         db_instance = models.ClassInstance(**instance_data.model_dump())
@@ -65,19 +100,10 @@ def create_class_instance(
             db.commit()
             db.refresh(db_instance)
 
-            # Populate joined fields for response
-            response_data = schemas.ClassInstanceResponse.model_validate(db_instance)
-            response_data.class_name = (
-                db_instance.class_schedule.class_name
-                if db_instance.class_schedule
-                else None
+            # Return response with populated fields
+            return schemas.ClassInstanceResponse(
+                **_populate_response_fields(db_instance)
             )
-            if db_instance.teacher_uuid and db_instance.teacher:
-                response_data.teacher_name = (
-                    f"{db_instance.teacher.first_name} {db_instance.teacher.last_name}"
-                )
-
-            return response_data
         except IntegrityError:
             db.rollback()
             raise HTTPException(
@@ -108,17 +134,11 @@ def get_class_instances(
 
     instances = query.order_by(models.ClassInstance.class_date.desc()).all()
 
-    # Populate joined fields
-    for instance in instances:
-        instance.class_name = (
-            instance.class_schedule.class_name if instance.class_schedule else None
-        )
-        if instance.teacher_uuid and instance.teacher:
-            instance.teacher_name = (
-                f"{instance.teacher.first_name} {instance.teacher.last_name}"
-            )
-
-    return instances
+    # Populate joined fields and return as response models
+    return [
+        schemas.ClassInstanceResponse(**_populate_response_fields(inst))
+        for inst in instances
+    ]
 
 
 @router.get("/{instance_id}", response_model=schemas.ClassInstanceResponse)
@@ -133,16 +153,7 @@ def get_class_instance(instance_id: int, db: Session = Depends(get_db)):
     if not instance:
         raise HTTPException(status_code=404, detail="Class instance not found")
 
-    # Populate joined fields
-    instance.class_name = (
-        instance.class_schedule.class_name if instance.class_schedule else None
-    )
-    if instance.teacher_uuid and instance.teacher:
-        instance.teacher_name = (
-            f"{instance.teacher.first_name} {instance.teacher.last_name}"
-        )
-
-    return instance
+    return schemas.ClassInstanceResponse(**_populate_response_fields(instance))
 
 
 @router.get("/by-date/", response_model=schemas.ClassInstanceResponse)
@@ -167,16 +178,7 @@ def get_class_instance_by_date(
             detail=f"No class instance found for class {class_id} on {class_date}",
         )
 
-    # Populate joined fields
-    instance.class_name = (
-        instance.class_schedule.class_name if instance.class_schedule else None
-    )
-    if instance.teacher_uuid and instance.teacher:
-        instance.teacher_name = (
-            f"{instance.teacher.first_name} {instance.teacher.last_name}"
-        )
-
-    return instance
+    return schemas.ClassInstanceResponse(**_populate_response_fields(instance))
 
 
 @router.put("/{instance_id}", response_model=schemas.ClassInstanceResponse)
@@ -205,16 +207,7 @@ def update_class_instance(
     db.commit()
     db.refresh(instance)
 
-    # Populate joined fields
-    instance.class_name = (
-        instance.class_schedule.class_name if instance.class_schedule else None
-    )
-    if instance.teacher_uuid and instance.teacher:
-        instance.teacher_name = (
-            f"{instance.teacher.first_name} {instance.teacher.last_name}"
-        )
-
-    return instance
+    return schemas.ClassInstanceResponse(**_populate_response_fields(instance))
 
 
 @router.delete("/{instance_id}")
