@@ -287,7 +287,10 @@ if check_password():
                                 selected_role_ids = [
                                     role["id"]
                                     for role in all_roles
-                                    if st.session_state.get(f"role_{role['id']}_{member['user_uuid']}", False)
+                                    if st.session_state.get(
+                                        f"role_{role['id']}_{member['user_uuid']}",
+                                        False,
+                                    )
                                 ]
 
                                 update_payload = {"role_ids": selected_role_ids}
@@ -515,8 +518,6 @@ if check_password():
         # Fetch prerequisites
         try:
             classes = requests.get(f"{BASE_URL}/classes/").json()
-            teachers_res = requests.get(f"{BASE_URL}/roles/users/by-role/Teacher")
-            teachers = teachers_res.json() if teachers_res.status_code == 200 else []
 
             # Check if classes exist
             if not classes:
@@ -527,7 +528,7 @@ if check_password():
                 # Create/Update Lesson Form
                 with st.expander("➕ Add/Update Lesson", expanded=True):
                     with st.form("lesson_form"):
-                        col1, col2, col3 = st.columns(3)
+                        col1, col2 = st.columns(2)
 
                         with col1:
                             class_opts = {
@@ -543,22 +544,6 @@ if check_password():
                             lesson_date = st.date_input(
                                 "Class Date", value=date.today()
                             )
-
-                        with col3:
-                            teacher_opts = {"-- No Teacher --": None}
-                            if teachers:
-                                teacher_opts.update(
-                                    {
-                                        f"{t['first_name']} {t['last_name']}": t[
-                                            "user_uuid"
-                                        ]
-                                        for t in teachers
-                                    }
-                                )
-                            selected_teacher = st.selectbox(
-                                "Assign Teacher", options=list(teacher_opts.keys())
-                            )
-                            teacher_uuid = teacher_opts[selected_teacher]
 
                         lesson_title = st.text_input(
                             "Lesson Title (Optional)",
@@ -583,11 +568,10 @@ if check_password():
                         submit_lesson = st.form_submit_button("Save Lesson")
 
                         if submit_lesson:
-                            # Build payload
+                            # Build payload (teacher_uuid removed)
                             payload = {
                                 "class_id": class_id,
                                 "class_date": str(lesson_date),
-                                "teacher_uuid": teacher_uuid,
                                 "lesson_title": lesson_title if lesson_title else None,
                                 "lesson_plan_url": lesson_plan_url
                                 if lesson_plan_url
@@ -654,12 +638,11 @@ if check_password():
                         # Display as table
                         lessons_df = pd.DataFrame(lessons)
 
-                        # Format display
+                        # Format display (removed teacher_name column)
                         display_df = lessons_df[
                             [
                                 "class_name",
                                 "class_date",
-                                "teacher_name",
                                 "lesson_title",
                                 "id",
                             ]
@@ -667,7 +650,6 @@ if check_password():
                         display_df.columns = [
                             "Class",
                             "Date",
-                            "Teacher",
                             "Lesson Title",
                             "ID",
                         ]
@@ -726,11 +708,8 @@ if check_password():
                                         except Exception as e:
                                             st.error(f"⚠️ Connection failed: {e}")
 
-                                # Show current details
+                                # Show current details (removed teacher)
                                 st.info(f"**Current Details:**")
-                                st.write(
-                                    f"- **Teacher:** {lesson_detail.get('teacher_name', 'Not assigned')}"
-                                )
                                 st.write(
                                     f"- **Lesson Title:** {lesson_detail.get('lesson_title', 'None')}"
                                 )
