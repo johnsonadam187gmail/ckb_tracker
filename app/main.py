@@ -17,6 +17,8 @@ from .routers import (
     class_types,
     term_targets,
     roles,
+    curricula,
+    lessons,
 )
 
 # Initialize the FastAPI app
@@ -35,6 +37,8 @@ app.include_router(gyms.router)
 app.include_router(class_types.router)
 app.include_router(term_targets.router)
 app.include_router(roles.router)
+app.include_router(curricula.router)
+app.include_router(lessons.router)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
