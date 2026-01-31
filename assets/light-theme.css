@@ -1,0 +1,198 @@
+/* ============================================
+   CKB Tracker - Light Theme
+   Color variables for light mode
+   ============================================ */
+
+:root[data-theme="light"],
+.light-theme {
+    /* Primary Colors */
+    --primary-color: #c91a2b;
+    --primary-hover: #a01523;
+    --primary-light: #e52640;
+    
+    /* Secondary Colors */
+    --secondary-color: #1976D2;
+    --secondary-hover: #1565C0;
+    
+    /* Success Colors */
+    --success-color: #388E3C;
+    --success-hover: #2E7D32;
+    
+    /* Warning Colors */
+    --warning-color: #F57C00;
+    --warning-hover: #E65100;
+    
+    /* Error Colors */
+    --error-color: #D32F2F;
+    --error-hover: #C62828;
+    
+    /* Background Colors */
+    --bg-primary: #FFFFFF;
+    --bg-secondary: #F5F5F5;
+    --bg-tertiary: #EEEEEE;
+    
+    /* Text Colors */
+    --text-primary: #212121;
+    --text-secondary: #424242;
+    --text-tertiary: #757575;
+    --text-disabled: #BDBDBD;
+    
+    /* Border Colors */
+    --border-color: rgba(0, 0, 0, 0.12);
+    --border-hover: rgba(0, 0, 0, 0.24);
+    
+    /* Glassmorphism */
+    --glass-background: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(0, 0, 0, 0.1);
+    
+    /* Sidebar */
+    --sidebar-background: rgba(245, 245, 245, 0.95);
+    
+    /* Button Styles */
+    --button-background: #FFFFFF;
+    --button-text: #212121;
+    --button-border: rgba(0, 0, 0, 0.2);
+    --button-hover-background: #F5F5F5;
+    --button-hover-border: rgba(0, 0, 0, 0.3);
+    
+    /* Input Styles */
+    --input-background: #FFFFFF;
+    --input-border: rgba(0, 0, 0, 0.23);
+    --input-hover-background: #FAFAFA;
+    --input-focus-ring: rgba(201, 26, 43, 0.25);
+    
+    /* Card Styles */
+    --card-background: rgba(255, 255, 255, 0.9);
+    --card-border: rgba(0, 0, 0, 0.12);
+    --card-hover-background: rgba(245, 245, 245, 0.9);
+    
+    /* Tab Styles */
+    --tab-hover-background: rgba(0, 0, 0, 0.04);
+    --tab-active-background: rgba(201, 26, 43, 0.08);
+    
+    /* Table Styles */
+    --table-header-background: #F5F5F5;
+    --table-row-even: rgba(0, 0, 0, 0.02);
+    --table-row-hover: rgba(201, 26, 43, 0.05);
+    
+    /* Alert Backgrounds */
+    --success-background: rgba(56, 142, 60, 0.1);
+    --success-text: #2E7D32;
+    --warning-background: rgba(245, 124, 0, 0.1);
+    --warning-text: #E65100;
+    --error-background: rgba(211, 47, 47, 0.1);
+    --error-text: #C62828;
+    --info-background: rgba(25, 118, 210, 0.1);
+    --info-text: #1565C0;
+    
+    /* Scrollbar */
+    --scrollbar-track: #F5F5F5;
+    --scrollbar-thumb: #BDBDBD;
+    --scrollbar-thumb-hover: #9E9E9E;
+    
+    /* Shadows (Lighter for light mode) */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Light Mode Specific Overrides */
+[data-theme="light"] .stApp {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+[data-theme="light"] section[data-testid="stSidebar"] {
+    background: var(--sidebar-background) !important;
+    border-right: 1px solid var(--border-color) !important;
+}
+
+[data-theme="light"] .main {
+    background-color: var(--bg-primary);
+}
+
+/* Lighter button shadows for light mode */
+[data-theme="light"] button[kind="primary"] {
+    box-shadow: 0 2px 8px rgba(201, 26, 43, 0.25);
+}
+
+[data-theme="light"] button[kind="primary"]:hover {
+    box-shadow: 0 4px 12px rgba(201, 26, 43, 0.35);
+}
+
+[data-theme="light"] button[kind="secondary"] {
+    box-shadow: 0 2px 8px rgba(25, 118, 210, 0.25);
+}
+
+[data-theme="light"] button[kind="secondary"]:hover {
+    box-shadow: 0 4px 12px rgba(25, 118, 210, 0.35);
+}
+
+[data-theme="light"] .stFormSubmitButton > button {
+    box-shadow: 0 2px 8px rgba(56, 142, 60, 0.25);
+}
+
+[data-theme="light"] .stFormSubmitButton > button:hover {
+    box-shadow: 0 4px 12px rgba(56, 142, 60, 0.35);
+}
+
+/* Light mode text selection */
+[data-theme="light"] ::selection {
+    background: rgba(201, 26, 43, 0.3);
+    color: white;
+}
+
+/* Better contrast for important elements in light mode */
+[data-theme="light"] [data-testid="stMetricValue"] {
+    color: var(--text-primary);
+}
+
+/* Light mode link styling */
+[data-theme="light"] a {
+    color: var(--secondary-color);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+
+[data-theme="light"] a:hover {
+    color: var(--secondary-hover);
+    text-decoration: underline;
+}
+
+/* Light mode divider */
+[data-theme="light"] hr {
+    border-color: var(--border-color);
+}
+
+/* Light mode code blocks */
+[data-theme="light"] code {
+    background: #F5F5F5;
+    color: #1976D2;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: 'Monaco', 'Menlo', monospace;
+}
+
+[data-theme="light"] pre {
+    background: #F5F5F5;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+}
+
+/* Enhanced glassmorphism effect for light mode */
+[data-theme="light"] .glass-container {
+    background: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Light mode card enhancement */
+[data-theme="light"] .stMetric {
+    background: var(--card-background) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .stMetric:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
+}

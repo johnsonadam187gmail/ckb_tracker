@@ -1,0 +1,171 @@
+/* ============================================
+   CKB Tracker - Dark Theme
+   Color variables for dark mode
+   ============================================ */
+
+:root[data-theme="dark"],
+.dark-theme {
+    /* Primary Colors */
+    --primary-color: #c91a2b;
+    --primary-hover: #a01523;
+    --primary-light: #e52640;
+    
+    /* Secondary Colors */
+    --secondary-color: #2196F3;
+    --secondary-hover: #1976D2;
+    
+    /* Success Colors */
+    --success-color: #4CAF50;
+    --success-hover: #388E3C;
+    
+    /* Warning Colors */
+    --warning-color: #FFA726;
+    --warning-hover: #F57C00;
+    
+    /* Error Colors */
+    --error-color: #F44336;
+    --error-hover: #D32F2F;
+    
+    /* Background Colors */
+    --bg-primary: #0B0E0F;
+    --bg-secondary: #191B1F;
+    --bg-tertiary: #24262B;
+    
+    /* Text Colors */
+    --text-primary: #FFFFFF;
+    --text-secondary: #E0E0E0;
+    --text-tertiary: #9E9E9E;
+    --text-disabled: #616161;
+    
+    /* Border Colors */
+    --border-color: rgba(255, 255, 255, 0.12);
+    --border-hover: rgba(255, 255, 255, 0.24);
+    
+    /* Glassmorphism */
+    --glass-background: rgba(25, 27, 31, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    
+    /* Sidebar */
+    --sidebar-background: rgba(25, 27, 31, 0.95);
+    
+    /* Button Styles */
+    --button-background: #24262B;
+    --button-text: #FFFFFF;
+    --button-border: rgba(255, 255, 255, 0.2);
+    --button-hover-background: #2D3035;
+    --button-hover-border: rgba(255, 255, 255, 0.3);
+    
+    /* Input Styles */
+    --input-background: #1F2126;
+    --input-border: rgba(255, 255, 255, 0.15);
+    --input-hover-background: #24262B;
+    --input-focus-ring: rgba(201, 26, 43, 0.25);
+    
+    /* Card Styles */
+    --card-background: rgba(25, 27, 31, 0.8);
+    --card-border: rgba(255, 255, 255, 0.1);
+    --card-hover-background: rgba(36, 38, 43, 0.9);
+    
+    /* Tab Styles */
+    --tab-hover-background: rgba(255, 255, 255, 0.05);
+    --tab-active-background: rgba(201, 26, 43, 0.1);
+    
+    /* Table Styles */
+    --table-header-background: #1F2126;
+    --table-row-even: rgba(255, 255, 255, 0.02);
+    --table-row-hover: rgba(201, 26, 43, 0.08);
+    
+    /* Alert Backgrounds */
+    --success-background: rgba(76, 175, 80, 0.15);
+    --success-text: #81C784;
+    --warning-background: rgba(255, 167, 38, 0.15);
+    --warning-text: #FFB74D;
+    --error-background: rgba(244, 67, 54, 0.15);
+    --error-text: #E57373;
+    --info-background: rgba(33, 150, 243, 0.15);
+    --info-text: #64B5F6;
+    
+    /* Scrollbar */
+    --scrollbar-track: #191B1F;
+    --scrollbar-thumb: #3A3D45;
+    --scrollbar-thumb-hover: #4A4D55;
+    
+    /* Shadows (Enhanced for dark mode) */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.5);
+}
+
+/* Dark Mode Specific Overrides */
+[data-theme="dark"] .stApp {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] section[data-testid="stSidebar"] {
+    background: var(--sidebar-background) !important;
+}
+
+[data-theme="dark"] .main {
+    background-color: var(--bg-primary);
+}
+
+/* Enhanced glow effects for dark mode */
+[data-theme="dark"] button[kind="primary"]:hover {
+    box-shadow: 0 0 20px rgba(201, 26, 43, 0.5), 0 6px 20px rgba(201, 26, 43, 0.4);
+}
+
+[data-theme="dark"] button[kind="secondary"]:hover {
+    box-shadow: 0 0 20px rgba(33, 150, 243, 0.4), 0 6px 20px rgba(33, 150, 243, 0.3);
+}
+
+[data-theme="dark"] .stFormSubmitButton > button:hover {
+    box-shadow: 0 0 20px rgba(76, 175, 80, 0.4), 0 6px 20px rgba(76, 175, 80, 0.3);
+}
+
+/* Dark mode text selection */
+[data-theme="dark"] ::selection {
+    background: rgba(201, 26, 43, 0.4);
+    color: white;
+}
+
+/* Enhance contrast for important elements in dark mode */
+[data-theme="dark"] [data-testid="stMetricValue"] {
+    color: var(--text-primary);
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+}
+
+/* Dark mode link styling */
+[data-theme="dark"] a {
+    color: var(--secondary-color);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+
+[data-theme="dark"] a:hover {
+    color: var(--secondary-hover);
+    text-decoration: underline;
+}
+
+/* Dark mode divider */
+[data-theme="dark"] hr {
+    border-color: var(--border-color);
+    opacity: 0.5;
+}
+
+/* Dark mode code blocks */
+[data-theme="dark"] code {
+    background: #1F2126;
+    color: #64B5F6;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: 'Monaco', 'Menlo', monospace;
+}
+
+[data-theme="dark"] pre {
+    background: #1F2126;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+}
