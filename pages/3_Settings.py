@@ -110,13 +110,14 @@ if check_password():
             st.error(f"⚠️ Connection failed: {e}")
 
     # --- TABS DEFINITION ---
-    tab_user, tab_class, tab_gym_types, tab_terms, tab_targets = st.tabs(
+    tab_user, tab_class, tab_gym_types, tab_terms, tab_targets, tab_lessons = st.tabs(
         [
             "🥋 User Admin",
             "📅 Class Schedule",
             "🏢 Gyms & Types",
             "🗓️ Terms",
             "🎯 Targets",
+            "📚 Lessons",
         ]
     )
 
@@ -266,19 +267,29 @@ if check_password():
                         with st.form("role_assignment_form"):
                             st.caption("Select all roles this member should have")
 
-                            selected_role_ids = []
+                            # Create checkboxes with unique keys for session state
                             for role in all_roles:
                                 is_current = any(
                                     r["role_id"] == role["id"] for r in current_roles
                                 )
-                                if st.checkbox(
+                                # Checkbox state will be stored in session_state with the key
+                                st.checkbox(
                                     f"{role['name']} - {role['description']}",
                                     value=is_current,
-                                    key=f"role_{role['id']}",
-                                ):
-                                    selected_role_ids.append(role["id"])
+                                    key=f"role_{role['id']}_{member['user_uuid']}",
+                                )
 
-                            if st.form_submit_button("Update Roles"):
+                            submit_roles = st.form_submit_button("Update Roles")
+
+                            # Handle submission INSIDE the form context
+                            if submit_roles:
+                                # Collect selected role IDs from session state
+                                selected_role_ids = [
+                                    role["id"]
+                                    for role in all_roles
+                                    if st.session_state.get(f"role_{role['id']}_{member['user_uuid']}", False)
+                                ]
+
                                 update_payload = {"role_ids": selected_role_ids}
                                 try:
                                     update_res = requests.put(
@@ -493,6 +504,256 @@ if check_password():
                 )
         else:
             st.warning("Create a Term first before setting targets.")
+
+    # --- 6. LESSONS MANAGEMENT ---
+    with tab_lessons:
+        st.header("📚 Lesson Management")
+        st.caption(
+            "Manage lesson plans and video resources for class instances (class + date)"
+        )
+
+        # Fetch prerequisites
+        try:
+            classes = requests.get(f"{BASE_URL}/classes/").json()
+            teachers_res = requests.get(f"{BASE_URL}/roles/users/by-role/Teacher")
+            teachers = teachers_res.json() if teachers_res.status_code == 200 else []
+
+            # Check if classes exist
+            if not classes:
+                st.warning(
+                    "⚠️ No classes found. Please create a class in the 'Class Schedule' tab first."
+                )
+            else:
+                # Create/Update Lesson Form
+                with st.expander("➕ Add/Update Lesson", expanded=True):
+                    with st.form("lesson_form"):
+                        col1, col2, col3 = st.columns(3)
+
+                        with col1:
+                            class_opts = {
+                                f"{c['class_name']} ({c['day']} {c['time']})": c["id"]
+                                for c in classes
+                            }
+                            selected_class = st.selectbox(
+                                "Select Class", options=list(class_opts.keys())
+                            )
+                            class_id = class_opts[selected_class]
+
+                        with col2:
+                            lesson_date = st.date_input(
+                                "Class Date", value=date.today()
+                            )
+
+                        with col3:
+                            teacher_opts = {"-- No Teacher --": None}
+                            if teachers:
+                                teacher_opts.update(
+                                    {
+                                        f"{t['first_name']} {t['last_name']}": t[
+                                            "user_uuid"
+                                        ]
+                                        for t in teachers
+                                    }
+                                )
+                            selected_teacher = st.selectbox(
+                                "Assign Teacher", options=list(teacher_opts.keys())
+                            )
+                            teacher_uuid = teacher_opts[selected_teacher]
+
+                        lesson_title = st.text_input(
+                            "Lesson Title (Optional)",
+                            placeholder="e.g., Fundamentals - Guard Passing",
+                        )
+
+                        col_url1, col_url2 = st.columns(2)
+                        with col_url1:
+                            lesson_plan_url = st.text_input(
+                                "Lesson Plan URL (Optional)",
+                                placeholder="https://docs.google.com/document/...",
+                                help="Enter a valid URL (Google Docs, Dropbox, etc.)",
+                            )
+
+                        with col_url2:
+                            video_folder_url = st.text_input(
+                                "Video Folder URL (Optional)",
+                                placeholder="https://drive.google.com/drive/folders/...",
+                                help="Enter a valid URL to video resources",
+                            )
+
+                        submit_lesson = st.form_submit_button("Save Lesson")
+
+                        if submit_lesson:
+                            # Build payload
+                            payload = {
+                                "class_id": class_id,
+                                "class_date": str(lesson_date),
+                                "teacher_uuid": teacher_uuid,
+                                "lesson_title": lesson_title if lesson_title else None,
+                                "lesson_plan_url": lesson_plan_url
+                                if lesson_plan_url
+                                else None,
+                                "video_folder_url": video_folder_url
+                                if video_folder_url
+                                else None,
+                            }
+
+                            try:
+                                res = requests.post(
+                                    f"{BASE_URL}/class-instances/", json=payload
+                                )
+                                if res.status_code == 200:
+                                    st.success("✅ Lesson saved successfully!")
+                                    st.rerun()
+                                else:
+                                    detail = res.json().get("detail", "Unknown error")
+                                    st.error(f"❌ Error: {detail}")
+                            except Exception as e:
+                                st.error(f"⚠️ Connection failed: {e}")
+
+                st.divider()
+
+                # Display existing lessons
+                st.subheader("📋 Current Lessons")
+
+                # Filters
+                col_f1, col_f2, col_f3 = st.columns(3)
+                with col_f1:
+                    filter_class = st.selectbox(
+                        "Filter by Class",
+                        options=["-- All Classes --"] + list(class_opts.keys()),
+                        key="filter_class",
+                    )
+                with col_f2:
+                    filter_start = st.date_input(
+                        "From Date",
+                        value=date.today().replace(day=1),
+                        key="filter_start",
+                    )
+                with col_f3:
+                    filter_end = st.date_input(
+                        "To Date", value=date.today(), key="filter_end"
+                    )
+
+                # Fetch lessons with filters
+                params = {}
+                if filter_class != "-- All Classes --":
+                    params["class_id"] = class_opts[filter_class]
+                if filter_start:
+                    params["start_date"] = str(filter_start)
+                if filter_end:
+                    params["end_date"] = str(filter_end)
+
+                lessons_res = requests.get(
+                    f"{BASE_URL}/class-instances/", params=params
+                )
+
+                if lessons_res.status_code == 200:
+                    lessons = lessons_res.json()
+
+                    if lessons:
+                        # Display as table
+                        lessons_df = pd.DataFrame(lessons)
+
+                        # Format display
+                        display_df = lessons_df[
+                            [
+                                "class_name",
+                                "class_date",
+                                "teacher_name",
+                                "lesson_title",
+                                "id",
+                            ]
+                        ].copy()
+                        display_df.columns = [
+                            "Class",
+                            "Date",
+                            "Teacher",
+                            "Lesson Title",
+                            "ID",
+                        ]
+                        display_df["Date"] = pd.to_datetime(
+                            display_df["Date"]
+                        ).dt.strftime("%Y-%m-%d")
+
+                        # Fill NaN values
+                        display_df = display_df.fillna("--")
+
+                        st.dataframe(
+                            display_df.drop(columns=["ID"]),
+                            width="stretch",
+                            hide_index=True,
+                        )
+
+                        st.divider()
+
+                        # Edit/Delete section
+                        st.subheader("✏️ Edit or Delete Lesson")
+                        lesson_map = {
+                            f"{row['Class']} - {row['Date']}": row["ID"]
+                            for _, row in display_df.iterrows()
+                        }
+                        selected_lesson = st.selectbox(
+                            "Select a lesson to edit or delete:",
+                            options=["-- Select Lesson --"] + list(lesson_map.keys()),
+                        )
+
+                        if selected_lesson != "-- Select Lesson --":
+                            lesson_id = lesson_map[selected_lesson]
+
+                            # Fetch lesson details
+                            lesson_detail_res = requests.get(
+                                f"{BASE_URL}/class-instances/{lesson_id}"
+                            )
+                            if lesson_detail_res.status_code == 200:
+                                lesson_detail = lesson_detail_res.json()
+
+                                col_btn1, col_btn2 = st.columns(2)
+
+                                with col_btn1:
+                                    if st.button("🗑️ Delete Lesson", type="secondary"):
+                                        try:
+                                            del_res = requests.delete(
+                                                f"{BASE_URL}/class-instances/{lesson_id}"
+                                            )
+                                            if del_res.status_code == 200:
+                                                st.success("✅ Lesson deleted!")
+                                                st.rerun()
+                                            else:
+                                                detail = del_res.json().get(
+                                                    "detail", "Unknown error"
+                                                )
+                                                st.error(f"❌ Error: {detail}")
+                                        except Exception as e:
+                                            st.error(f"⚠️ Connection failed: {e}")
+
+                                # Show current details
+                                st.info(f"**Current Details:**")
+                                st.write(
+                                    f"- **Teacher:** {lesson_detail.get('teacher_name', 'Not assigned')}"
+                                )
+                                st.write(
+                                    f"- **Lesson Title:** {lesson_detail.get('lesson_title', 'None')}"
+                                )
+                                if lesson_detail.get("lesson_plan_url"):
+                                    st.write(
+                                        f"- **Lesson Plan:** {lesson_detail.get('lesson_plan_url')}"
+                                    )
+                                if lesson_detail.get("video_folder_url"):
+                                    st.write(
+                                        f"- **Video Folder:** {lesson_detail.get('video_folder_url')}"
+                                    )
+
+                    else:
+                        st.info("ℹ️ No lessons found for the selected filters.")
+                        st.caption(
+                            "Create a lesson using the form above or adjust your filters."
+                        )
+                else:
+                    st.error(f"❌ Failed to fetch lessons: {lessons_res.status_code}")
+
+        except Exception as e:
+            st.error(f"⚠️ Connection error: {e}")
+
     st.success("Welcome, Admin")
     # tab_user, tab_class, etc...
 else:

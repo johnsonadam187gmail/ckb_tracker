@@ -268,11 +268,12 @@ db.query(models.User).filter(models.User.is_current == True).all()
 2. **Role** - Fixed role types (Student, Teacher, Admin)
 3. **UserRole** - Many-to-many user-role assignments with SCD Type 2 versioning
 4. **ClassSchedule** - Classes with SCD Type 2 versioning
-5. **FactAttendance** - Attendance fact table with teacher tracking
-6. **Term** - Training terms/semesters
-7. **TermTarget** - Performance targets per rank per term
-8. **GymLocation** - Training locations
-9. **ClassType** - Class categories (Gi, No-Gi, etc.)
+5. **ClassInstance** - Specific class occurrence (class + date) with teacher and lesson info
+6. **FactAttendance** - Attendance fact table linked to ClassInstances
+7. **Term** - Training terms/semesters
+8. **TermTarget** - Performance targets per rank per term
+9. **GymLocation** - Training locations
+10. **ClassType** - Class categories (Gi, No-Gi, etc.)
 
 ### Role System Architecture
 
@@ -419,8 +420,131 @@ GET    /roles/users/by-role/{role_name} # Get all users with role
 GET    /attendance/teacher/{uuid}/classes # Teacher analytics
 ```
 
+### ClassInstance (Lessons) Architecture
+
+**Overview:** The application implements a lesson management system to track lesson plans, video resources, and teacher assignments for each specific class occurrence.
+
+**Key Concept:**
+- **ClassSchedule**: Represents a recurring class (e.g., "Fundamentals 1 - Monday 18:00")
+- **ClassInstance**: Represents a specific occurrence of a class on a particular date (e.g., "Fundamentals 1 on 2026-01-31")
+- **Lesson Data**: Attached to ClassInstance (title, lesson plan URL, video folder URL)
+- **Teacher Assignment**: Now at ClassInstance level (one teacher per class occurrence)
+
+**Why ClassInstance?**
+- Separates "scheduled class" from "class happening on a date"
+- Allows different lesson plans for the same recurring class
+- Enables teacher assignment at class level (not per-student)
+- Supports curriculum progression tracking
+- Auto-created when first student checks in (if not pre-created by admin)
+
+**Database Schema:**
+
+```python
+class ClassInstance(Base):
+    __tablename__ = "class_instances"
+    
+    id = Integer (PK)
+    class_id = Integer (FK → classes.id, NOT NULL, Indexed)
+    class_date = Date (NOT NULL, Indexed)
+    teacher_uuid = String (FK → users.user_uuid, Nullable)
+    
+    # Lesson fields (all optional)
+    lesson_title = String(200, Nullable)
+    lesson_plan_url = String(500, Nullable)  # Validated as URL
+    video_folder_url = String(500, Nullable)  # Validated as URL
+    
+    created_at = DateTime
+    updated_at = DateTime
+    
+    UNIQUE(class_id, class_date)  # One instance per class per day
+```
+
+**FactAttendance Integration:**
+
+```python
+class FactAttendance(Base):
+    # ... existing fields ...
+    class_instance_id = Integer (FK → class_instances.id, Nullable, Indexed)
+    teacher_uuid = String (Deprecated - use class_instance.teacher_uuid)
+    
+    # Relationship
+    class_instance = relationship("ClassInstance")
+```
+
+**Data Flow:**
+
+1. **Attendance Check-in:**
+   - User checks in via Attendance page
+   - Backend finds or auto-creates ClassInstance for (class_id, date)
+   - Creates FactAttendance record linked to ClassInstance
+   - Multiple students in same class share one ClassInstance
+
+2. **Lesson Management (Admin):**
+   - Admin goes to Settings → Lessons tab
+   - Selects class + date, adds lesson info (title, URLs)
+   - Creates or updates ClassInstance
+   - Can pre-create for future classes or update past classes
+
+3. **Teacher View:**
+   - Teacher goes to Teacher page
+   - Selects class + date
+   - Sees student roster AND lesson information
+   - Links to lesson plan and video folder displayed
+
+**Lesson Management Features:**
+- **Create/Update Lessons**: Settings page → Lessons tab
+- **View Lessons**: Teacher page (read-only for teachers)
+- **URL Validation**: Supports Google Drive, Dropbox, any valid HTTP/HTTPS URL
+- **Optional Fields**: All lesson fields (title, URLs) are optional
+- **Teacher Assignment**: Per class instance, affects all students in that class
+- **Auto-Creation**: ClassInstance created automatically on first check-in if not exists
+
+**API Endpoints:**
+
+```
+POST   /class-instances/              # Create/update class instance (upsert)
+GET    /class-instances/              # List all instances (filters: class_id, date range)
+GET    /class-instances/{id}          # Get specific instance by ID
+GET    /class-instances/by-date/      # Get instance by class_id + class_date
+PUT    /class-instances/{id}          # Update lesson information
+DELETE /class-instances/{id}          # Delete instance (fails if attendance exists)
+```
+
+**Frontend Integration:**
+
+1. **Settings Page (`pages/3_Settings.py`):**
+   - New "📚 Lessons" tab
+   - Form: Select class + date + teacher + lesson info
+   - Table: View all lessons with filters (class, date range)
+   - Actions: Edit, Delete lessons
+   - Admin-only access (existing Settings auth)
+
+2. **Teacher Page (`pages/4_Teacher.py`):**
+   - After student roster section
+   - "📚 Lesson Information" section
+   - Displays: Lesson title, lesson plan button, video folder button
+   - Shows "No lesson available" if not created
+   - Read-only for teachers
+
+3. **Attendance Page (`Attendance.py`):**
+   - No changes needed (teacher selection removed)
+   - Check-in auto-creates ClassInstance behind the scenes
+
+**URL Validation:**
+- Pydantic `HttpUrl` type validates URLs
+- Accepts: `http://`, `https://` protocols
+- Supports: Google Drive, Dropbox, OneDrive, any web URL
+- Frontend: Shows helpful hints/examples
+
+**Teacher Assignment Migration:**
+- **Old**: `teacher_uuid` in FactAttendance (per-student)
+- **New**: `teacher_uuid` in ClassInstance (per-class occurrence)
+- **Benefit**: Teachers teach classes, not individual students
+- **Backward Compatibility**: Old `teacher_uuid` field kept in FactAttendance but deprecated
+
 ### Key Constraints
 - `FactAttendance`: Unique constraint on (user_uuid, class_id, attendance_date)
+- `ClassInstance`: Unique constraint on (class_id, class_date)
 - `User.email`: Indexed but not unique (due to versioning)
 - `User.user_uuid`: Unique identifier for user identity
 - `ClassSchedule.class_uuid`: Unique identifier for class identity
@@ -446,9 +570,10 @@ GET    /attendance/teacher/{uuid}/classes # Teacher analytics
 
 1. **Models First** - Define SQLAlchemy models in `app/models.py`
 2. **Schemas Next** - Create Pydantic schemas in `app/schemas.py`
-3. **Routes Last** - Add endpoints to `app/main.py`
+3. **Routes** - Create router in `app/routers/` and include in `app/main.py`
 4. **Frontend Integration** - Update Streamlit pages to consume API
-5. **Test Manually** - No automated tests yet; test via UI or curl/Postman
+5. **Test** - Write tests in `tests/` and run with `pytest`
+6. **Verify** - Test via UI and run full test suite
 
 ## UI Styling Guidelines
 

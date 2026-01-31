@@ -1,4 +1,7 @@
-"""Attendance tracking endpoints."""
+"""Attendance tracking endpoints.
+
+Updated: Teacher dashboard now queries via ClassInstance.teacher_uuid.
+"""
 
 from typing import List, Optional
 from datetime import datetime, date
@@ -20,13 +23,35 @@ def record_attendance(
     user_uuid: str = Form(...),
     class_id: int = Form(...),
     attendance_date: str = Form(...),
-    teacher_uuid: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
-    """Record attendance for a user, optionally with teacher assignment."""
+    """Record attendance for a user.
+
+    Automatically creates or finds a ClassInstance for the given class and date.
+    Teacher assignment is now managed at the ClassInstance level, not per-student.
+    """
     date_obj = datetime.strptime(attendance_date, "%Y-%m-%d").date()
 
     try:
+        # Find or create ClassInstance for this class and date
+        class_instance = (
+            db.query(models.ClassInstance)
+            .filter(
+                models.ClassInstance.class_id == class_id,
+                models.ClassInstance.class_date == date_obj,
+            )
+            .first()
+        )
+
+        if not class_instance:
+            # Auto-create ClassInstance if it doesn't exist
+            class_instance = models.ClassInstance(
+                class_id=class_id,
+                class_date=date_obj,
+            )
+            db.add(class_instance)
+            db.flush()  # Get the ID without committing
+
         # Get user's current Student role for user_role_id
         user_role = (
             db.query(models.UserRole)
@@ -42,8 +67,8 @@ def record_attendance(
         new_record = models.FactAttendance(
             user_uuid=user_uuid,
             class_id=class_id,
+            class_instance_id=class_instance.id,
             attendance_date=date_obj,
-            teacher_uuid=teacher_uuid,
             user_role_id=user_role.id if user_role else None,
         )
         db.add(new_record)
@@ -155,19 +180,30 @@ def get_teacher_class_summary(
     end_date: Optional[date] = None,
     db: Session = Depends(get_db),
 ):
-    """Get summary of classes taught by a specific teacher."""
+    """Get summary of classes taught by a specific teacher.
+
+    Now queries via ClassInstance.teacher_uuid instead of deprecated
+    FactAttendance.teacher_uuid field.
+    """
     query = (
         db.query(
-            models.FactAttendance.teacher_uuid,
+            models.ClassInstance.teacher_uuid,
             models.FactAttendance.attendance_date.label("class_date"),
             models.ClassSchedule.class_name,
             func.count(models.FactAttendance.user_uuid).label("student_count"),
             func.sum(models.ClassSchedule.weighting).label("total_weighting"),
         )
-        .join(models.ClassSchedule)
-        .filter(models.FactAttendance.teacher_uuid == teacher_uuid)
+        .join(
+            models.ClassInstance,
+            models.FactAttendance.class_instance_id == models.ClassInstance.id,
+        )
+        .join(
+            models.ClassSchedule,
+            models.ClassSchedule.id == models.FactAttendance.class_id,
+        )
+        .filter(models.ClassInstance.teacher_uuid == teacher_uuid)
         .group_by(
-            models.FactAttendance.teacher_uuid,
+            models.ClassInstance.teacher_uuid,
             models.FactAttendance.attendance_date,
             models.ClassSchedule.class_name,
         )
@@ -209,7 +245,11 @@ class TeacherUpdate(BaseModel):
 def update_attendance_teacher(
     attendance_id: int, teacher_data: TeacherUpdate, db: Session = Depends(get_db)
 ):
-    """Update the teacher for a specific attendance record."""
+    """Update the teacher for an attendance record via its ClassInstance.
+
+    This updates the teacher at the class instance level, affecting all
+    students in that class on that date.
+    """
     attendance = (
         db.query(models.FactAttendance)
         .filter(models.FactAttendance.id == attendance_id)
@@ -218,6 +258,21 @@ def update_attendance_teacher(
 
     if not attendance:
         raise HTTPException(status_code=404, detail="Attendance record not found")
+
+    # Get the associated class instance
+    if not attendance.class_instance_id:
+        raise HTTPException(
+            status_code=400, detail="Attendance record has no associated class instance"
+        )
+
+    class_instance = (
+        db.query(models.ClassInstance)
+        .filter(models.ClassInstance.id == attendance.class_instance_id)
+        .first()
+    )
+
+    if not class_instance:
+        raise HTTPException(status_code=404, detail="Class instance not found")
 
     # Verify teacher exists and has Teacher role
     teacher = (
@@ -250,13 +305,13 @@ def update_attendance_teacher(
             detail=f"User {teacher.first_name} {teacher.last_name} does not have Teacher role",
         )
 
-    # Update teacher
-    attendance.teacher_uuid = teacher_data.teacher_uuid
+    # Update teacher at class instance level
+    class_instance.teacher_uuid = teacher_data.teacher_uuid
     db.commit()
-    db.refresh(attendance)
+    db.refresh(class_instance)
 
     return {
-        "message": "Teacher updated successfully",
-        "attendance_id": attendance_id,
+        "message": "Teacher updated successfully for all students in this class",
+        "class_instance_id": class_instance.id,
         "teacher_uuid": teacher_data.teacher_uuid,
     }

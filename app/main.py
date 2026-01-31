@@ -10,6 +10,7 @@ from .config import settings
 from .routers import (
     users,
     classes,
+    class_instances,
     attendance,
     terms,
     gyms,
@@ -27,6 +28,7 @@ models.Base.metadata.create_all(bind=database.engine)
 # Include routers
 app.include_router(users.router)
 app.include_router(classes.router)
+app.include_router(class_instances.router)
 app.include_router(attendance.router)
 app.include_router(terms.router)
 app.include_router(gyms.router)

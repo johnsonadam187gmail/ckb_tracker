@@ -223,6 +223,77 @@ if selected_class_name != "-- Select Class --":
                     mime="text/csv",
                 )
 
+                st.divider()
+
+                # --- LESSON INFORMATION SECTION ---
+                st.subheader("📚 Lesson Information")
+
+                try:
+                    # Fetch class instance (lesson) for this class and date
+                    lesson_res = requests.get(
+                        f"{BASE_URL}/class-instances/by-date/",
+                        params={"class_id": class_id, "class_date": str(selected_date)},
+                    )
+
+                    if lesson_res.status_code == 200:
+                        lesson = lesson_res.json()
+
+                        # Display lesson title if exists
+                        if lesson.get("lesson_title"):
+                            st.markdown(f"### {lesson['lesson_title']}")
+                        else:
+                            st.info("No lesson title set for this class")
+
+                        # Display lesson resources
+                        col_lesson1, col_lesson2 = st.columns(2)
+
+                        with col_lesson1:
+                            if lesson.get("lesson_plan_url"):
+                                st.link_button(
+                                    "📄 Open Lesson Plan",
+                                    lesson["lesson_plan_url"],
+                                    use_container_width=True,
+                                )
+                            else:
+                                st.info("📄 No lesson plan available")
+
+                        with col_lesson2:
+                            if lesson.get("video_folder_url"):
+                                st.link_button(
+                                    "🎥 Open Video Folder",
+                                    lesson["video_folder_url"],
+                                    use_container_width=True,
+                                )
+                            else:
+                                st.info("🎥 No video folder available")
+
+                        # Show lesson metadata
+                        with st.expander("📋 Lesson Details"):
+                            st.write(f"**Class:** {lesson.get('class_name', 'N/A')}")
+                            st.write(f"**Date:** {lesson.get('class_date', 'N/A')}")
+                            st.write(
+                                f"**Teacher:** {lesson.get('teacher_name', 'Not assigned')}"
+                            )
+                            if lesson.get("lesson_plan_url"):
+                                st.code(lesson["lesson_plan_url"], language=None)
+                            if lesson.get("video_folder_url"):
+                                st.code(lesson["video_folder_url"], language=None)
+
+                    elif lesson_res.status_code == 404:
+                        st.info("ℹ️ No lesson plan has been created for this class yet")
+                        st.caption(
+                            "Admins can add lesson plans in the Settings page under the Lessons tab"
+                        )
+
+                    else:
+                        st.warning(
+                            f"⚠️ Could not fetch lesson information: {lesson_res.status_code}"
+                        )
+
+                except Exception as e:
+                    st.warning(f"⚠️ Could not load lesson information: {e}")
+                    st.caption("Lesson information may not be available")
+
             else:
                 st.info("ℹ️ No students checked in for this class on the selected date.")
                 st.caption("Students must check in via the Attendance page first.")

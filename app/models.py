@@ -10,6 +10,7 @@ from sqlalchemy import (
     Text,
     Boolean,
     UniqueConstraint,
+    and_,
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, foreign
@@ -150,6 +151,51 @@ class ClassType(Base):
     name = Column(String, unique=True, index=True)
 
 
+class ClassInstance(Base):
+    """Represents a specific class instance on a particular date.
+
+    This model captures:
+    - A scheduled class (ClassSchedule) happening on a specific date
+    - The teacher assigned to teach that class instance
+    - Lesson plan information (title, plan URL, video URL) for that session
+    """
+
+    __tablename__ = "class_instances"
+
+    id = Column(Integer, primary_key=True, index=True)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False, index=True)
+    class_date = Column(Date, nullable=False, index=True)
+    teacher_uuid = Column(
+        String, ForeignKey("users.user_uuid"), nullable=True, index=True
+    )
+
+    # Lesson fields (all optional)
+    lesson_title = Column(String(200), nullable=True)
+    lesson_plan_url = Column(String(500), nullable=True)
+    video_folder_url = Column(String(500), nullable=True)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("class_id", "class_date", name="_class_date_uc"),
+    )
+
+    # Relationships
+    class_schedule = relationship("ClassSchedule", backref="class_instances")
+    teacher = relationship(
+        "User",
+        foreign_keys=[teacher_uuid],
+        primaryjoin="and_(ClassInstance.teacher_uuid == User.user_uuid, User.is_current == True)",
+        viewonly=True,
+    )
+    attendance_records = relationship("FactAttendance", back_populates="class_instance")
+
+
 class FactAttendance(Base):
     __tablename__ = "attendance"
 
@@ -160,9 +206,12 @@ class FactAttendance(Base):
         String, ForeignKey("users.user_uuid"), index=True, nullable=False
     )
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    class_instance_id = Column(
+        Integer, ForeignKey("class_instances.id"), nullable=True, index=True
+    )
     teacher_uuid = Column(
         String, ForeignKey("users.user_uuid"), nullable=True, index=True
-    )
+    )  # Deprecated: use class_instance.teacher_uuid instead
     user_role_id = Column(Integer, ForeignKey("user_roles.id"), nullable=True)
 
     attendance_date = Column(Date, default=lambda: datetime.now(timezone.utc).date())
@@ -180,4 +229,5 @@ class FactAttendance(Base):
     )
     teacher = relationship("User", foreign_keys=[teacher_uuid])
     class_info = relationship("ClassSchedule", back_populates="attendance_records")
+    class_instance = relationship("ClassInstance", back_populates="attendance_records")
     user_role = relationship("UserRole", back_populates="attendance_records")

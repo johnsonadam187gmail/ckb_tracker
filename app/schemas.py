@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, HttpUrl, field_validator
 from datetime import datetime, date
 from typing import Optional, List
 
@@ -54,11 +54,6 @@ class ClassCreate(ClassBase):
 
 
 class ClassResponse(ClassBase):
-    class_name: str
-    day: str
-    time: str
-    description: Optional[str]
-    weighting: float
     id: int
     class_uuid: str
     is_current: bool
@@ -165,7 +160,7 @@ class AttendanceCreate(BaseModel):
     user_uuid: str
     class_id: int
     attendance_date: date
-    teacher_uuid: Optional[str] = None
+    # teacher_uuid removed - now managed at ClassInstance level
 
 
 class AttendanceResponse(BaseModel):
@@ -261,6 +256,38 @@ class TeacherAnalyticsResponse(BaseModel):
     class_date: date
     student_count: int
     total_weighting: float
+
+    class Config:
+        from_attributes = True
+
+
+# --- ClassInstance Schemas (Lessons) ---
+class ClassInstanceBase(BaseModel):
+    class_id: int
+    class_date: date
+    teacher_uuid: Optional[str] = None
+    lesson_title: Optional[str] = None
+    lesson_plan_url: Optional[HttpUrl] = None
+    video_folder_url: Optional[HttpUrl] = None
+
+
+class ClassInstanceCreate(ClassInstanceBase):
+    pass
+
+
+class ClassInstanceUpdate(BaseModel):
+    teacher_uuid: Optional[str] = None
+    lesson_title: Optional[str] = None
+    lesson_plan_url: Optional[HttpUrl] = None
+    video_folder_url: Optional[HttpUrl] = None
+
+
+class ClassInstanceResponse(ClassInstanceBase):
+    id: int
+    class_name: Optional[str] = None  # Populated from join
+    teacher_name: Optional[str] = None  # Populated from join
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
