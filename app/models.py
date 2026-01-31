@@ -110,11 +110,13 @@ class ClassSchedule(Base):
     end_date = Column(DateTime, nullable=True)
     created_date = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # Relationship to attendance
-    attendance_records = relationship("FactAttendance", back_populates="class_info")
     # Relationships
+    attendance_records = relationship("FactAttendance", back_populates="class_info")
     gym = relationship("GymLocation")
     type = relationship("ClassType")
+    curriculum = relationship(
+        "Curriculum", uselist=False, back_populates="class_schedule"
+    )
 
 
 class Term(Base):
@@ -151,13 +153,71 @@ class ClassType(Base):
     name = Column(String, unique=True, index=True)
 
 
+class Curriculum(Base):
+    """Represents a curriculum for a class (stream).
+
+    Each class has exactly ONE curriculum which contains multiple lessons.
+    This is a 1:1 relationship with ClassSchedule.
+    """
+
+    __tablename__ = "curricula"
+
+    id = Column(Integer, primary_key=True, index=True)
+    class_id = Column(
+        Integer, ForeignKey("classes.id"), unique=True, nullable=False, index=True
+    )
+    name = Column(String(200))
+    description = Column(Text)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    class_schedule = relationship("ClassSchedule", back_populates="curriculum")
+    lessons = relationship(
+        "Lesson", back_populates="curriculum", cascade="all, delete-orphan"
+    )
+
+
+class Lesson(Base):
+    """Represents a lesson template in a curriculum.
+
+    Lessons are reusable content (title, description, URLs) that can be
+    assigned to multiple ClassInstances (dates).
+    """
+
+    __tablename__ = "lessons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    curriculum_id = Column(
+        Integer, ForeignKey("curricula.id"), nullable=False, index=True
+    )
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    lesson_plan_url = Column(String(500), nullable=True)
+    video_folder_url = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # Relationships
+    curriculum = relationship("Curriculum", back_populates="lessons")
+    class_instances = relationship("ClassInstance", back_populates="lesson")
+
+
 class ClassInstance(Base):
     """Represents a specific class instance on a particular date.
 
     This model captures:
     - A scheduled class (ClassSchedule) happening on a specific date
     - The teacher assigned to teach that class instance
-    - Lesson plan information (title, plan URL, video URL) for that session
+    - The lesson (from curriculum) assigned to this session
     """
 
     __tablename__ = "class_instances"
@@ -168,11 +228,7 @@ class ClassInstance(Base):
     teacher_uuid = Column(
         String, ForeignKey("users.user_uuid"), nullable=True, index=True
     )
-
-    # Lesson fields (all optional)
-    lesson_title = Column(String(200), nullable=True)
-    lesson_plan_url = Column(String(500), nullable=True)
-    video_folder_url = Column(String(500), nullable=True)
+    lesson_id = Column(Integer, ForeignKey("lessons.id"), nullable=True, index=True)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
@@ -193,6 +249,7 @@ class ClassInstance(Base):
         primaryjoin="and_(ClassInstance.teacher_uuid == User.user_uuid, User.is_current == True)",
         viewonly=True,
     )
+    lesson = relationship("Lesson", back_populates="class_instances")
     attendance_records = relationship("FactAttendance", back_populates="class_instance")
 
 
