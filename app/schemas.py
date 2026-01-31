@@ -261,14 +261,66 @@ class TeacherAnalyticsResponse(BaseModel):
         from_attributes = True
 
 
-# --- ClassInstance Schemas (Lessons) ---
+# --- Curriculum Schemas ---
+class CurriculumBase(BaseModel):
+    class_id: int
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class CurriculumCreate(CurriculumBase):
+    pass
+
+
+class CurriculumUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class CurriculumResponse(CurriculumBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# --- Lesson Schemas ---
+class LessonBase(BaseModel):
+    curriculum_id: int
+    title: str
+    description: Optional[str] = None
+    lesson_plan_url: Optional[HttpUrl] = None
+    video_folder_url: Optional[HttpUrl] = None
+
+
+class LessonCreate(LessonBase):
+    pass
+
+
+class LessonUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    lesson_plan_url: Optional[HttpUrl] = None
+    video_folder_url: Optional[HttpUrl] = None
+
+
+class LessonResponse(LessonBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# --- ClassInstance Schemas (Lesson Assignments) ---
 class ClassInstanceBase(BaseModel):
     class_id: int
     class_date: date
     teacher_uuid: Optional[str] = None
-    lesson_title: Optional[str] = None
-    lesson_plan_url: Optional[HttpUrl] = None
-    video_folder_url: Optional[HttpUrl] = None
+    lesson_id: Optional[int] = None
 
 
 class ClassInstanceCreate(ClassInstanceBase):
@@ -277,15 +329,18 @@ class ClassInstanceCreate(ClassInstanceBase):
 
 class ClassInstanceUpdate(BaseModel):
     teacher_uuid: Optional[str] = None
-    lesson_title: Optional[str] = None
-    lesson_plan_url: Optional[HttpUrl] = None
-    video_folder_url: Optional[HttpUrl] = None
+    lesson_id: Optional[int] = None
 
 
 class ClassInstanceResponse(ClassInstanceBase):
     id: int
     class_name: Optional[str] = None  # Populated from join
     teacher_name: Optional[str] = None  # Populated from join
+    # Lesson details (populated from join with Lesson table)
+    lesson_title: Optional[str] = None
+    lesson_description: Optional[str] = None
+    lesson_plan_url: Optional[str] = None
+    video_folder_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
