@@ -549,9 +549,14 @@ if check_password():
                     "⚠️ No classes found. Please create a class in the 'Class Schedule' tab first."
                 )
             else:
-                # Create sub-tabs for Curriculum, Lessons, and Assignment
-                subtab_curr, subtab_lib, subtab_assign = st.tabs(
-                    ["📖 Curricula", "📝 Lesson Library", "📅 Assign to Dates"]
+                # Create sub-tabs for Curriculum, Lessons, Assignment, and Teachers
+                subtab_curr, subtab_lib, subtab_assign, subtab_teachers = st.tabs(
+                    [
+                        "📖 Curricula",
+                        "📝 Lesson Library",
+                        "📅 Assign to Dates",
+                        "👨‍🏫 Teacher Assignments",
+                    ]
                 )
 
                 # --- SUBTAB 1: CURRICULUM MANAGEMENT ---
@@ -1158,6 +1163,7 @@ if check_password():
                                     [
                                         "class_name",
                                         "class_date",
+                                        "teacher_name",
                                         "lesson_title",
                                         "id",
                                     ]
@@ -1165,12 +1171,16 @@ if check_password():
                                 display_df.columns = [
                                     "Class",
                                     "Date",
+                                    "Teacher",
                                     "Lesson",
                                     "ID",
                                 ]
                                 display_df["Date"] = pd.to_datetime(
                                     display_df["Date"]
                                 ).dt.strftime("%Y-%m-%d")
+                                display_df["Teacher"] = display_df["Teacher"].fillna(
+                                    "Not Assigned"
+                                )
                                 display_df["Lesson"] = display_df["Lesson"].fillna(
                                     "-- Not Assigned --"
                                 )
@@ -1256,6 +1266,375 @@ if check_password():
                             st.error(
                                 f"❌ Failed to fetch instances: {instances_res.status_code}"
                             )
+
+                # --- SUBTAB 4: TEACHER ASSIGNMENTS ---
+                with subtab_teachers:
+                    st.subheader("👨‍🏫 Teacher Assignment Management")
+                    st.caption("Assign and manage teachers for class instances")
+
+                    # === SECTION A: ASSIGN/UPDATE TEACHER FORM ===
+                    with st.expander("💾 Assign Teacher to Class Date", expanded=True):
+                        with st.form("assign_teacher_form"):
+                            col1, col2, col3 = st.columns(3)
+
+                            with col1:
+                                # Class selection
+                                class_opts = {
+                                    f"{c['class_name']} ({c['day']} {c['time']})": c[
+                                        "id"
+                                    ]
+                                    for c in classes
+                                }
+                                selected_class = st.selectbox(
+                                    "Select Class",
+                                    options=list(class_opts.keys()),
+                                    key="teacher_assign_class",
+                                )
+                                assign_class_id = class_opts[selected_class]
+
+                            with col2:
+                                # Date selection
+                                assign_date = st.date_input(
+                                    "Class Date",
+                                    value=date.today(),
+                                    key="teacher_assign_date",
+                                )
+
+                            with col3:
+                                # Teacher selection
+                                teachers_res = requests.get(
+                                    f"{BASE_URL}/roles/users/by-role/Teacher"
+                                )
+                                teachers_list = (
+                                    teachers_res.json()
+                                    if teachers_res.status_code == 200
+                                    else []
+                                )
+
+                                teacher_opts = {"-- No Teacher Assigned --": None}
+                                if teachers_list:
+                                    teacher_opts.update(
+                                        {
+                                            f"{t['first_name']} {t['last_name']}": t[
+                                                "user_uuid"
+                                            ]
+                                            for t in teachers_list
+                                        }
+                                    )
+
+                                selected_teacher = st.selectbox(
+                                    "Assign Teacher",
+                                    options=list(teacher_opts.keys()),
+                                    help="Select teacher for this class date",
+                                    key="teacher_assign_select",
+                                )
+                                selected_teacher_uuid = teacher_opts[selected_teacher]
+
+                            submit_teacher = st.form_submit_button(
+                                "💾 Save Teacher Assignment"
+                            )
+
+                            if submit_teacher:
+                                # Check if ClassInstance exists
+                                try:
+                                    instance_check = requests.get(
+                                        f"{BASE_URL}/class-instances/by-date/",
+                                        params={
+                                            "class_id": assign_class_id,
+                                            "class_date": str(assign_date),
+                                        },
+                                    )
+
+                                    if instance_check.status_code == 200:
+                                        # Update existing instance
+                                        instance_id = instance_check.json()["id"]
+                                        update_res = requests.put(
+                                            f"{BASE_URL}/class-instances/{instance_id}",
+                                            json={
+                                                "teacher_uuid": selected_teacher_uuid
+                                            },
+                                        )
+                                        action = "updated"
+                                    else:
+                                        # Create new instance
+                                        update_res = requests.post(
+                                            f"{BASE_URL}/class-instances/",
+                                            json={
+                                                "class_id": assign_class_id,
+                                                "class_date": str(assign_date),
+                                                "teacher_uuid": selected_teacher_uuid,
+                                                "lesson_id": None,
+                                            },
+                                        )
+                                        action = "assigned"
+
+                                    if update_res.status_code == 200:
+                                        teacher_name = (
+                                            selected_teacher
+                                            if selected_teacher
+                                            != "-- No Teacher Assigned --"
+                                            else "removed"
+                                        )
+                                        st.success(f"✅ Teacher {action} successfully!")
+                                        st.rerun()
+                                    else:
+                                        detail = update_res.json().get(
+                                            "detail", "Unknown error"
+                                        )
+                                        st.error(f"❌ Error: {detail}")
+
+                                except Exception as e:
+                                    st.error(f"⚠️ Connection failed: {e}")
+
+                    st.divider()
+
+                    # === SECTION B: VIEW ALL TEACHER ASSIGNMENTS ===
+                    st.subheader("📋 Current Teacher Assignments")
+
+                    # Filters
+                    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+
+                    with col_f1:
+                        filter_class_opts = {
+                            f"{c['class_name']} ({c['day']} {c['time']})": c["id"]
+                            for c in classes
+                        }
+                        filter_class = st.selectbox(
+                            "Filter by Class",
+                            options=["-- All Classes --"]
+                            + list(filter_class_opts.keys()),
+                            key="teacher_filter_class",
+                        )
+
+                    with col_f2:
+                        filter_teacher_opts = ["-- All Teachers --"]
+                        if teachers_list:
+                            filter_teacher_opts.extend(
+                                [
+                                    f"{t['first_name']} {t['last_name']}"
+                                    for t in teachers_list
+                                ]
+                            )
+
+                        filter_teacher = st.selectbox(
+                            "Filter by Teacher",
+                            options=filter_teacher_opts,
+                            key="teacher_filter_teacher",
+                        )
+
+                    with col_f3:
+                        filter_start = st.date_input(
+                            "From Date",
+                            value=date.today().replace(day=1),
+                            key="teacher_filter_start",
+                        )
+
+                    with col_f4:
+                        filter_end = st.date_input(
+                            "To Date", value=date.today(), key="teacher_filter_end"
+                        )
+
+                    # Fetch class instances with filters
+                    params = {}
+                    if filter_class != "-- All Classes --":
+                        params["class_id"] = filter_class_opts[filter_class]
+                    if filter_teacher != "-- All Teachers --":
+                        # Find teacher UUID
+                        teacher_name_parts = filter_teacher.split()
+                        if len(teacher_name_parts) >= 2:
+                            matching_teacher = next(
+                                (
+                                    t
+                                    for t in teachers_list
+                                    if t["first_name"] == teacher_name_parts[0]
+                                    and t["last_name"]
+                                    == " ".join(teacher_name_parts[1:])
+                                ),
+                                None,
+                            )
+                            if matching_teacher:
+                                params["teacher_uuid"] = matching_teacher["user_uuid"]
+                    if filter_start:
+                        params["start_date"] = str(filter_start)
+                    if filter_end:
+                        params["end_date"] = str(filter_end)
+
+                    instances_res = requests.get(
+                        f"{BASE_URL}/class-instances/", params=params
+                    )
+
+                    if instances_res.status_code == 200:
+                        instances = instances_res.json()
+
+                        if instances:
+                            # Prepare display data
+                            instances_df = pd.DataFrame(instances)
+                            display_df = instances_df[
+                                [
+                                    "class_name",
+                                    "class_date",
+                                    "teacher_name",
+                                    "lesson_title",
+                                    "id",
+                                ]
+                            ].copy()
+                            display_df.columns = [
+                                "Class",
+                                "Date",
+                                "Teacher",
+                                "Lesson",
+                                "ID",
+                            ]
+
+                            # Format dates
+                            display_df["Date"] = pd.to_datetime(
+                                display_df["Date"]
+                            ).dt.strftime("%Y-%m-%d")
+
+                            # Handle null values
+                            display_df["Teacher"] = display_df["Teacher"].fillna(
+                                "Not Assigned"
+                            )
+                            display_df["Lesson"] = display_df["Lesson"].fillna(
+                                "No Lesson"
+                            )
+
+                            # Show summary metrics
+                            col_m1, col_m2, col_m3 = st.columns(3)
+                            with col_m1:
+                                st.metric("Total Instances", len(display_df))
+                            with col_m2:
+                                assigned_count = (
+                                    display_df["Teacher"] != "Not Assigned"
+                                ).sum()
+                                st.metric("Teachers Assigned", assigned_count)
+                            with col_m3:
+                                unique_teachers = display_df[
+                                    display_df["Teacher"] != "Not Assigned"
+                                ]["Teacher"].nunique()
+                                st.metric("Unique Teachers", unique_teachers)
+
+                            # Display table
+                            st.dataframe(
+                                display_df.drop(columns=["ID"]),
+                                width="stretch",
+                                hide_index=True,
+                            )
+
+                            # === SECTION C: EDIT/REMOVE ACTIONS ===
+                            with st.expander("✏️ Edit Teacher Assignment"):
+                                instance_map = {
+                                    f"{row['Class']} - {row['Date']}": row["ID"]
+                                    for _, row in display_df.iterrows()
+                                }
+
+                                selected_instance = st.selectbox(
+                                    "Select class instance to edit:",
+                                    options=["-- Select --"]
+                                    + list(instance_map.keys()),
+                                    key="edit_teacher_instance",
+                                )
+
+                                if selected_instance != "-- Select --":
+                                    instance_id = instance_map[selected_instance]
+
+                                    # Fetch instance details
+                                    detail_res = requests.get(
+                                        f"{BASE_URL}/class-instances/{instance_id}"
+                                    )
+
+                                    if detail_res.status_code == 200:
+                                        instance_detail = detail_res.json()
+
+                                        # Show current teacher
+                                        current_teacher = instance_detail.get(
+                                            "teacher_name", "Not assigned"
+                                        )
+                                        st.info(
+                                            f"**Current Teacher:** {current_teacher}"
+                                        )
+
+                                        # Change teacher form
+                                        with st.form("edit_teacher_assignment_form"):
+                                            st.write("**Update Teacher:**")
+
+                                            new_teacher_opts = {
+                                                "-- No Teacher Assigned --": None
+                                            }
+                                            if teachers_list:
+                                                new_teacher_opts.update(
+                                                    {
+                                                        f"{t['first_name']} {t['last_name']}": t[
+                                                            "user_uuid"
+                                                        ]
+                                                        for t in teachers_list
+                                                    }
+                                                )
+
+                                            new_teacher = st.selectbox(
+                                                "Select New Teacher",
+                                                options=list(new_teacher_opts.keys()),
+                                                key="new_teacher_select",
+                                            )
+                                            new_teacher_uuid = new_teacher_opts[
+                                                new_teacher
+                                            ]
+
+                                            if st.form_submit_button("Update Teacher"):
+                                                try:
+                                                    update_res = requests.put(
+                                                        f"{BASE_URL}/class-instances/{instance_id}",
+                                                        json={
+                                                            "teacher_uuid": new_teacher_uuid
+                                                        },
+                                                    )
+
+                                                    if update_res.status_code == 200:
+                                                        st.success(
+                                                            "✅ Teacher assignment updated!"
+                                                        )
+                                                        st.rerun()
+                                                    else:
+                                                        detail = update_res.json().get(
+                                                            "detail", "Unknown error"
+                                                        )
+                                                        st.error(f"❌ Error: {detail}")
+                                                except Exception as e:
+                                                    st.error(
+                                                        f"⚠️ Connection failed: {e}"
+                                                    )
+
+                                        # Remove teacher button (outside form)
+                                        if st.button(
+                                            "🗑️ Remove Teacher Assignment",
+                                            type="secondary",
+                                            key="remove_teacher_btn",
+                                        ):
+                                            try:
+                                                remove_res = requests.put(
+                                                    f"{BASE_URL}/class-instances/{instance_id}",
+                                                    json={"teacher_uuid": None},
+                                                )
+
+                                                if remove_res.status_code == 200:
+                                                    st.success("✅ Teacher removed!")
+                                                    st.rerun()
+                                                else:
+                                                    detail = remove_res.json().get(
+                                                        "detail", "Unknown error"
+                                                    )
+                                                    st.error(f"❌ Error: {detail}")
+                                            except Exception as e:
+                                                st.error(f"⚠️ Connection failed: {e}")
+                        else:
+                            st.info("ℹ️ No class instances found with current filters")
+                            st.caption(
+                                "Class instances are created when students check in or when you assign a teacher/lesson"
+                            )
+                    else:
+                        st.error(
+                            f"❌ Failed to fetch class instances: {instances_res.status_code}"
+                        )
 
         except Exception as e:
             st.error(f"⚠️ Connection error: {e}")
