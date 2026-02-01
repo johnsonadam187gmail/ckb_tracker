@@ -54,7 +54,7 @@ st.title("👨‍🏫 Teacher Dashboard")
 # --- CLASS AND DATE SELECTION ---
 st.header("Class Roster")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns([1, 2, 2, 1.5])
 
 with col1:
     selected_date = st.date_input("Class Date", value=datetime.now())
@@ -102,6 +102,87 @@ with col3:
     )
 
     selected_teacher_uuid = teacher_options[selected_teacher_name]
+
+with col4:
+    # Spacer to align button with dropdowns
+    st.write("")
+
+    # Teacher Assignment Button
+    if selected_class_name != "-- Select Class --":
+        if (
+            selected_teacher_uuid
+            and selected_teacher_name != "-- No Teacher Assigned --"
+        ):
+            # Enabled button
+            if st.button(
+                "💾 Assign Teacher",
+                type="primary",
+                use_container_width=True,
+                help=f"Assign {selected_teacher_name} to {selected_class_name} on {selected_date.strftime('%Y-%m-%d')}",
+            ):
+                # Get class_id from selected class
+                class_id = class_data[selected_class_name]["id"]
+
+                with st.spinner("Assigning teacher..."):
+                    try:
+                        # Check if ClassInstance exists
+                        instance_check = requests.get(
+                            f"{BASE_URL}/class-instances/by-date/",
+                            params={
+                                "class_id": class_id,
+                                "class_date": str(selected_date),
+                            },
+                        )
+
+                        if instance_check.status_code == 200:
+                            # Update existing ClassInstance
+                            instance_id = instance_check.json()["id"]
+                            update_res = requests.put(
+                                f"{BASE_URL}/class-instances/{instance_id}",
+                                json={"teacher_uuid": selected_teacher_uuid},
+                            )
+                            action = "updated"
+                        else:
+                            # Create new ClassInstance
+                            update_res = requests.post(
+                                f"{BASE_URL}/class-instances/",
+                                json={
+                                    "class_id": class_id,
+                                    "class_date": str(selected_date),
+                                    "teacher_uuid": selected_teacher_uuid,
+                                    "lesson_id": None,
+                                },
+                            )
+                            action = "assigned"
+
+                        if update_res.status_code == 200:
+                            st.success(
+                                f"✅ {selected_teacher_name} {action} successfully!"
+                            )
+                            st.toast(f"Teacher {action}!", icon="✅")
+                            st.rerun()
+                        else:
+                            detail = update_res.json().get("detail", "Unknown error")
+                            st.error(f"❌ Failed to assign teacher: {detail}")
+
+                    except Exception as e:
+                        st.error(f"⚠️ Connection error: {e}")
+        else:
+            # Disabled button - no teacher selected
+            st.button(
+                "💾 Assign Teacher",
+                disabled=True,
+                use_container_width=True,
+                help="Select a teacher first",
+            )
+    else:
+        # Disabled button - no class selected
+        st.button(
+            "💾 Assign Teacher",
+            disabled=True,
+            use_container_width=True,
+            help="Select a class first",
+        )
 
 # --- DISPLAY ENROLLED STUDENTS ---
 if selected_class_name != "-- Select Class --":
@@ -163,60 +244,8 @@ if selected_class_name != "-- Select Class --":
             # Show info if no students checked in yet
             if len(df_attendance) == 0:
                 st.info(
-                    "ℹ️ No students have checked in yet. You can still assign a teacher for when students arrive."
+                    "ℹ️ No students have checked in yet. Teacher can be assigned using the button at the top."
                 )
-
-            # Button to assign teacher - always show if teacher is selected
-            if (
-                selected_teacher_uuid
-                and selected_teacher_name != "-- No Teacher Assigned --"
-            ):
-                if st.button(
-                    f"✅ Assign {selected_teacher_name} to All Students",
-                    type="primary",
-                ):
-                    with st.spinner("Updating teacher assignment..."):
-                        try:
-                            # Use ClassInstance API for efficient single-call update
-                            if current_instance:
-                                # Update existing ClassInstance
-                                update_res = requests.put(
-                                    f"{BASE_URL}/class-instances/{current_instance['id']}",
-                                    json={"teacher_uuid": selected_teacher_uuid},
-                                )
-                                action = "updated"
-                            else:
-                                # Create new ClassInstance with teacher
-                                update_res = requests.post(
-                                    f"{BASE_URL}/class-instances/",
-                                    json={
-                                        "class_id": class_id,
-                                        "class_date": str(selected_date),
-                                        "teacher_uuid": selected_teacher_uuid,
-                                        "lesson_id": None,
-                                    },
-                                )
-                                action = "assigned"
-
-                            if update_res.status_code == 200:
-                                st.success(
-                                    f"✅ Successfully {action} {selected_teacher_name} to this class!"
-                                )
-                                st.toast(
-                                    f"Teacher {selected_teacher_name} {action}!",
-                                    icon="✅",
-                                )
-                                st.rerun()
-                            else:
-                                detail = update_res.json().get(
-                                    "detail", "Unknown error"
-                                )
-                                st.error(f"❌ Error: {detail}")
-
-                        except Exception as e:
-                            st.error(f"⚠️ Connection error: {e}")
-
-            st.divider()
 
             # Display student roster only if there are students
             if attendance_data:
