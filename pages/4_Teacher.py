@@ -90,10 +90,15 @@ with col3:
             {f"{t['first_name']} {t['last_name']}": t["user_uuid"] for t in teachers}
         )
 
+    # Store for later use (will be set after we fetch ClassInstance)
+    default_teacher_index = 0
+
     selected_teacher_name = st.selectbox(
         "Assign Teacher",
         options=list(teacher_options.keys()),
+        index=default_teacher_index,
         help="Select the teacher who taught this class",
+        key=f"teacher_select_{selected_date}_{selected_class_name}",
     )
 
     selected_teacher_uuid = teacher_options[selected_teacher_name]
@@ -107,6 +112,19 @@ if selected_class_name != "-- Select Class --":
     st.subheader(f"Students Enrolled: {selected_class_name}")
     st.caption(f"Date: {selected_date.strftime('%B %d, %Y')}")
 
+    # Fetch ClassInstance to get current teacher assignment
+    current_instance = None
+    try:
+        instance_res = requests.get(
+            f"{BASE_URL}/class-instances/by-date/",
+            params={"class_id": class_id, "class_date": str(selected_date)},
+        )
+        if instance_res.status_code == 200:
+            current_instance = instance_res.json()
+    except Exception:
+        # ClassInstance may not exist yet - that's okay
+        pass
+
     # Fetch attendance records for this class and date
     try:
         attendance_res = requests.get(
@@ -117,88 +135,91 @@ if selected_class_name != "-- Select Class --":
         if attendance_res.status_code == 200:
             attendance_data = attendance_res.json()
 
-            if attendance_data:
-                # Create DataFrame for display
-                df_attendance = pd.DataFrame(attendance_data)
+            # Always show teacher assignment interface, even if no students
+            # Create DataFrame for display (empty if no students)
+            df_attendance = (
+                pd.DataFrame(attendance_data) if attendance_data else pd.DataFrame()
+            )
 
-                # Display metrics
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total Students", len(df_attendance))
-                with col2:
-                    if "weighting" in df_attendance.columns:
-                        total_points = df_attendance["weighting"].sum()
-                        st.metric("Total Points", f"{total_points:.1f}")
-                with col3:
-                    # Show current teacher if assigned
-                    if (
-                        selected_teacher_uuid
-                        and selected_teacher_name != "-- No Teacher Assigned --"
-                    ):
-                        st.metric(
-                            "Assigned Teacher",
-                            selected_teacher_name.replace(
-                                "-- No Teacher Assigned --", "None"
-                            ),
-                        )
-                    elif (
-                        "teacher_name" in df_attendance.columns
-                        and df_attendance["teacher_name"].notna().any()
-                    ):
-                        teacher_name = df_attendance["teacher_name"].iloc[0]
-                        st.metric(
-                            "Current Teacher",
-                            teacher_name if teacher_name else "Not Assigned",
-                        )
-                    else:
-                        st.metric("Current Teacher", "Not Assigned")
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Students", len(df_attendance))
+            with col2:
+                if len(df_attendance) > 0 and "weighting" in df_attendance.columns:
+                    total_points = df_attendance["weighting"].sum()
+                    st.metric("Total Points", f"{total_points:.1f}")
+                else:
+                    st.metric("Total Points", "0.0")
+            with col3:
+                # Show current teacher from ClassInstance
+                if current_instance and current_instance.get("teacher_name"):
+                    st.metric("Current Teacher", current_instance["teacher_name"])
+                else:
+                    st.metric("Current Teacher", "Not Assigned")
 
-                st.divider()
+            st.divider()
 
-                # Button to assign teacher to all students in this class
-                if (
-                    selected_teacher_uuid
-                    and selected_teacher_name != "-- No Teacher Assigned --"
+            # Show info if no students checked in yet
+            if len(df_attendance) == 0:
+                st.info(
+                    "ℹ️ No students have checked in yet. You can still assign a teacher for when students arrive."
+                )
+
+            # Button to assign teacher - always show if teacher is selected
+            if (
+                selected_teacher_uuid
+                and selected_teacher_name != "-- No Teacher Assigned --"
+            ):
+                if st.button(
+                    f"✅ Assign {selected_teacher_name} to All Students",
+                    type="primary",
                 ):
-                    if st.button(
-                        f"✅ Assign {selected_teacher_name} to All Students",
-                        type="primary",
-                    ):
-                        success_count = 0
-                        error_count = 0
+                    with st.spinner("Updating teacher assignment..."):
+                        try:
+                            # Use ClassInstance API for efficient single-call update
+                            if current_instance:
+                                # Update existing ClassInstance
+                                update_res = requests.put(
+                                    f"{BASE_URL}/class-instances/{current_instance['id']}",
+                                    json={"teacher_uuid": selected_teacher_uuid},
+                                )
+                                action = "updated"
+                            else:
+                                # Create new ClassInstance with teacher
+                                update_res = requests.post(
+                                    f"{BASE_URL}/class-instances/",
+                                    json={
+                                        "class_id": class_id,
+                                        "class_date": str(selected_date),
+                                        "teacher_uuid": selected_teacher_uuid,
+                                        "lesson_id": None,
+                                    },
+                                )
+                                action = "assigned"
 
-                        with st.spinner("Updating attendance records..."):
-                            for _, row in df_attendance.iterrows():
-                                try:
-                                    # Update attendance record with teacher
-                                    update_url = (
-                                        f"{BASE_URL}/attendance/{row['id']}/teacher"
-                                    )
-                                    update_res = requests.put(
-                                        update_url,
-                                        json={"teacher_uuid": selected_teacher_uuid},
-                                    )
+                            if update_res.status_code == 200:
+                                st.success(
+                                    f"✅ Successfully {action} {selected_teacher_name} to this class!"
+                                )
+                                st.toast(
+                                    f"Teacher {selected_teacher_name} {action}!",
+                                    icon="✅",
+                                )
+                                st.rerun()
+                            else:
+                                detail = update_res.json().get(
+                                    "detail", "Unknown error"
+                                )
+                                st.error(f"❌ Error: {detail}")
 
-                                    if update_res.status_code == 200:
-                                        success_count += 1
-                                    else:
-                                        error_count += 1
-                                except Exception as e:
-                                    error_count += 1
+                        except Exception as e:
+                            st.error(f"⚠️ Connection error: {e}")
 
-                        if error_count == 0:
-                            st.success(
-                                f"✅ Successfully assigned teacher to {success_count} students!"
-                            )
-                            st.rerun()
-                        else:
-                            st.warning(
-                                f"⚠️ Assigned teacher to {success_count} students, {error_count} failed"
-                            )
+            st.divider()
 
-                st.divider()
-
-                # Display student roster
+            # Display student roster only if there are students
+            if attendance_data:
                 st.subheader("📋 Student Roster")
 
                 # Format display columns
@@ -225,78 +246,57 @@ if selected_class_name != "-- Select Class --":
 
                 st.divider()
 
-                # --- LESSON INFORMATION SECTION ---
-                st.subheader("📚 Lesson Information")
+            # --- LESSON INFORMATION SECTION ---
+            # Always show lesson section (uses ClassInstance we already fetched)
+            st.subheader("📚 Lesson Information")
 
-                try:
-                    # Fetch class instance (lesson) for this class and date
-                    lesson_res = requests.get(
-                        f"{BASE_URL}/class-instances/by-date/",
-                        params={"class_id": class_id, "class_date": str(selected_date)},
-                    )
+            if current_instance:
+                # Display lesson title if exists
+                if current_instance.get("lesson_title"):
+                    st.markdown(f"### {current_instance['lesson_title']}")
+                else:
+                    st.info("No lesson title set for this class")
 
-                    if lesson_res.status_code == 200:
-                        lesson = lesson_res.json()
+                # Display lesson resources
+                col_lesson1, col_lesson2 = st.columns(2)
 
-                        # Display lesson title if exists
-                        if lesson.get("lesson_title"):
-                            st.markdown(f"### {lesson['lesson_title']}")
-                        else:
-                            st.info("No lesson title set for this class")
-
-                        # Display lesson resources
-                        col_lesson1, col_lesson2 = st.columns(2)
-
-                        with col_lesson1:
-                            if lesson.get("lesson_plan_url"):
-                                st.link_button(
-                                    "📄 Open Lesson Plan",
-                                    lesson["lesson_plan_url"],
-                                    use_container_width=True,
-                                )
-                            else:
-                                st.info("📄 No lesson plan available")
-
-                        with col_lesson2:
-                            if lesson.get("video_folder_url"):
-                                st.link_button(
-                                    "🎥 Open Video Folder",
-                                    lesson["video_folder_url"],
-                                    use_container_width=True,
-                                )
-                            else:
-                                st.info("🎥 No video folder available")
-
-                        # Show lesson metadata
-                        with st.expander("📋 Lesson Details"):
-                            st.write(f"**Class:** {lesson.get('class_name', 'N/A')}")
-                            st.write(f"**Date:** {lesson.get('class_date', 'N/A')}")
-                            st.write(
-                                f"**Teacher:** {lesson.get('teacher_name', 'Not assigned')}"
-                            )
-                            if lesson.get("lesson_plan_url"):
-                                st.code(lesson["lesson_plan_url"], language=None)
-                            if lesson.get("video_folder_url"):
-                                st.code(lesson["video_folder_url"], language=None)
-
-                    elif lesson_res.status_code == 404:
-                        st.info("ℹ️ No lesson plan has been created for this class yet")
-                        st.caption(
-                            "Admins can add lesson plans in the Settings page under the Lessons tab"
+                with col_lesson1:
+                    if current_instance.get("lesson_plan_url"):
+                        st.link_button(
+                            "📄 Open Lesson Plan",
+                            current_instance["lesson_plan_url"],
+                            use_container_width=True,
                         )
-
                     else:
-                        st.warning(
-                            f"⚠️ Could not fetch lesson information: {lesson_res.status_code}"
-                        )
+                        st.info("📄 No lesson plan available")
 
-                except Exception as e:
-                    st.warning(f"⚠️ Could not load lesson information: {e}")
-                    st.caption("Lesson information may not be available")
+                with col_lesson2:
+                    if current_instance.get("video_folder_url"):
+                        st.link_button(
+                            "🎥 Open Video Folder",
+                            current_instance["video_folder_url"],
+                            use_container_width=True,
+                        )
+                    else:
+                        st.info("🎥 No video folder available")
+
+                # Show lesson metadata
+                with st.expander("📋 Lesson Details"):
+                    st.write(f"**Class:** {current_instance.get('class_name', 'N/A')}")
+                    st.write(f"**Date:** {current_instance.get('class_date', 'N/A')}")
+                    st.write(
+                        f"**Teacher:** {current_instance.get('teacher_name', 'Not assigned')}"
+                    )
+                    if current_instance.get("lesson_plan_url"):
+                        st.code(current_instance["lesson_plan_url"], language=None)
+                    if current_instance.get("video_folder_url"):
+                        st.code(current_instance["video_folder_url"], language=None)
 
             else:
-                st.info("ℹ️ No students checked in for this class on the selected date.")
-                st.caption("Students must check in via the Attendance page first.")
+                st.info("ℹ️ No lesson plan has been created for this class yet")
+                st.caption(
+                    "Admins can add lesson plans in the Settings page under the Lessons tab"
+                )
 
         elif attendance_res.status_code == 500:
             st.error("⚠️ Server error fetching attendance data")
