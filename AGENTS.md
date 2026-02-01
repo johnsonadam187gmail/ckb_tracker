@@ -530,6 +530,276 @@ DELETE /class-instances/{id}          # Delete instance (fails if attendance exi
    - No changes needed (teacher selection removed)
    - Check-in auto-creates ClassInstance behind the scenes
 
+### Teacher Assignment Workflow
+
+**Overview:** Teachers are assigned at the ClassInstance level (one teacher per class occurrence), not per individual student attendance record. This feature enables both active teaching assignments and administrative corrections.
+
+**Key Design:**
+- `class_instances.teacher_uuid` (FK → users.user_uuid, Nullable) - **Primary** teacher field
+- `attendance.teacher_uuid` (Deprecated) - Legacy field, replaced by class_instance relationship
+- Teacher assignments can be made before students check in (pre-assignment)
+- All students in a class automatically reference the teacher via ClassInstance
+
+**Assignment Flows:**
+
+#### 1. Teacher Dashboard (Primary Flow - Active Teaching)
+
+**Purpose:** Teachers assign themselves (or others) to classes they are actively teaching.
+
+**Location:** `pages/4_Teacher.py`
+
+**User Journey:**
+1. Teacher opens Teacher Dashboard
+2. Selects class from dropdown
+3. Selects date (defaults to today)
+4. Teacher dropdown pre-populated if already assigned (fetched from ClassInstance)
+5. Selects teacher from dropdown (filtered to only Teacher role users)
+6. Clicks "✅ Assign {teacher name} to All Students" button
+7. System makes **single API call** to ClassInstance:
+   - If ClassInstance exists: `PUT /class-instances/{id}` with `{"teacher_uuid": uuid}`
+   - If not exists: `POST /class-instances/` creating new instance
+8. Success toast notification appears
+9. Page refreshes showing updated teacher in metrics
+10. All students in roster automatically linked to teacher
+
+**Key Features:**
+- Pre-fetches ClassInstance to show current teacher
+- Works even with no students checked in (pre-assignment)
+- Efficient single API call (not looping through students)
+- Shows teacher in "Current Teacher" metric
+- Toast notification for better UX
+- Optimized lesson info display (reuses fetched ClassInstance)
+
+**Code Flow:**
+```python
+# Fetch ClassInstance on page load
+GET /class-instances/by-date/?class_id={id}&class_date={date}
+
+# On button click - update or create
+if class_instance_exists:
+    PUT /class-instances/{instance_id}
+    Body: {"teacher_uuid": "selected-uuid"}
+else:
+    POST /class-instances/
+    Body: {
+        "class_id": class_id,
+        "class_date": "2026-02-01",
+        "teacher_uuid": "selected-uuid",
+        "lesson_id": null
+    }
+```
+
+#### 2. Settings Page (Admin Flow - Corrections/Management)
+
+**Purpose:** Admins manage teacher assignments after the fact, including updates and removals.
+
+**Location:** `pages/3_Settings.py` → Lessons tab → "👨‍🏫 Teacher Assignments" subtab
+
+**Features:**
+
+**A. Assignment Form:**
+- Class dropdown (all classes)
+- Date picker (any date - past, present, future)
+- Teacher dropdown (filtered to Teacher role users)
+- "💾 Save Teacher Assignment" button
+- Creates or updates ClassInstance via API (upsert pattern)
+
+**B. Assignments Table:**
+- Columns: Class | Date | Teacher | Lesson | (Actions)
+- Filters:
+  - Class dropdown (filter by specific class or all)
+  - Teacher dropdown (filter by specific teacher or all)
+  - Date range (from/to date pickers)
+- Metrics display:
+  - Total Instances
+  - Teachers Assigned (count)
+  - Unique Teachers (distinct count)
+- Shows "Not Assigned" for null teachers
+- Read-only display (editing via expander)
+
+**C. Edit/Remove Interface:**
+- Expander: "✏️ Edit Teacher Assignment"
+- Select class instance from dropdown (formatted as "Class - Date")
+- Shows current teacher name
+- Form to update teacher (dropdown + button)
+- "🗑️ Remove Teacher Assignment" button (sets teacher_uuid to None)
+
+**User Journey:**
+1. Admin opens Settings → Lessons → Teacher Assignments
+2. Views table of all current assignments with filters
+3. To assign/update:
+   - Fills form: class, date, teacher
+   - Clicks "Save" button
+   - System creates or updates ClassInstance
+4. To edit existing:
+   - Opens "Edit" expander
+   - Selects instance from dropdown
+   - Updates teacher or removes assignment
+5. Table refreshes showing changes
+
+**Code Flow:**
+```python
+# Fetch all instances with filters
+GET /class-instances/
+Params: {
+    class_id: (optional),
+    teacher_uuid: (optional),
+    start_date: "2026-01-01",
+    end_date: "2026-02-01"
+}
+
+# Assign teacher (form submission)
+# Check if exists
+GET /class-instances/by-date/?class_id={id}&class_date={date}
+
+if exists:
+    PUT /class-instances/{id}
+    Body: {"teacher_uuid": "new-uuid" or null}
+else:
+    POST /class-instances/
+    Body: {full instance data with teacher_uuid}
+
+# Remove teacher (button click)
+PUT /class-instances/{id}
+Body: {"teacher_uuid": null}
+```
+
+**Validation:**
+- **Frontend:** Only users with Teacher role appear in dropdown
+  - Fetched via: `GET /roles/users/by-role/Teacher`
+- **Backend:** Teacher role validated when updating (attendance.py lines 291-306)
+- **Optional Field:** teacher_uuid allows NULL (no teacher assigned)
+
+**API Endpoints:**
+
+```python
+# Get teachers list
+GET /roles/users/by-role/Teacher
+Response: [
+    {"user_uuid": "uuid", "first_name": "John", "last_name": "Doe", ...},
+    ...
+]
+
+# Get ClassInstance (includes teacher info via join)
+GET /class-instances/by-date/?class_id={id}&class_date={date}
+Response: {
+    "id": 1,
+    "class_id": 1,
+    "class_date": "2026-02-01",
+    "teacher_uuid": "uuid",
+    "teacher_name": "John Doe",  # Populated from join
+    "lesson_id": null,
+    "lesson_title": null,
+    ...
+}
+
+# Create ClassInstance with teacher (upsert pattern)
+POST /class-instances/
+Body: {
+    "class_id": 1,
+    "class_date": "2026-02-01",
+    "teacher_uuid": "uuid-here",
+    "lesson_id": null
+}
+
+# Update teacher assignment
+PUT /class-instances/{instance_id}
+Body: {
+    "teacher_uuid": "new-uuid"  # or null to remove
+}
+
+# Query with filters (Settings table)
+GET /class-instances/
+Params: {
+    class_id: 1,  # optional
+    teacher_uuid: "uuid",  # optional
+    start_date: "2026-01-01",  # optional
+    end_date: "2026-02-01"  # optional
+}
+Response: [
+    {
+        "id": 1,
+        "class_name": "Fundamentals 1",  # Join field
+        "class_date": "2026-02-01",
+        "teacher_name": "John Doe",  # Join field
+        "lesson_title": "Guard Passing",  # Join field
+        ...
+    },
+    ...
+]
+```
+
+**Edge Cases & Handling:**
+
+1. **Deleted Teacher User:**
+   - ClassInstance.teacher_uuid becomes dangling reference
+   - UI shows "Unknown Teacher" or "Not Assigned"
+   - No database cascade (preserves historical data)
+
+2. **No Students Checked In:**
+   - Teacher assignment still allowed (pre-assignment)
+   - ClassInstance created without attendance records
+   - When students check in later, they link to existing instance
+
+3. **Multiple Simultaneous Updates:**
+   - Last write wins at database level
+   - No locking mechanism (acceptable for this use case)
+   - Unlikely scenario in practice
+
+4. **Future Date Assignment:**
+   - Fully supported (pre-assignment for upcoming classes)
+   - ClassInstance created in advance
+   - Visible in Settings table immediately
+
+**Database Verification:**
+
+```sql
+-- Check teacher assignment
+SELECT 
+    ci.id,
+    ci.class_date,
+    ci.teacher_uuid,
+    u.first_name || ' ' || u.last_name as teacher_name
+FROM class_instances ci
+LEFT JOIN users u ON ci.teacher_uuid = u.user_uuid AND u.is_current = 1
+WHERE ci.class_id = ?;
+
+-- Verify attendance links to instance
+SELECT 
+    a.id,
+    a.user_uuid,
+    a.class_instance_id,
+    ci.teacher_uuid as instance_teacher
+FROM attendance a
+JOIN class_instances ci ON a.class_instance_id = ci.id
+WHERE a.class_id = ? AND a.attendance_date = ?;
+```
+
+**Testing Checklist:**
+
+**Teacher Dashboard:**
+- [ ] Dropdown pre-populates with current teacher
+- [ ] Assignment works with no students (pre-assignment)
+- [ ] Assignment updates existing ClassInstance
+- [ ] Toast notification appears on success
+- [ ] Current teacher shows in metrics
+- [ ] Only Teacher role users in dropdown
+
+**Settings Page:**
+- [ ] Table displays all assignments with correct columns
+- [ ] Filters work (class, teacher, date range)
+- [ ] Metrics calculate correctly
+- [ ] Assignment form creates/updates ClassInstance
+- [ ] Edit expander allows changing teacher
+- [ ] Remove button sets teacher_uuid to null
+- [ ] Teacher column shows in lesson assignments table
+
+**Backend:**
+- [ ] ClassInstance.teacher_uuid persists correctly
+- [ ] Attendance records reference correct instance
+- [ ] API responses include teacher_name (join field)
+- [ ] Teacher role validation works
+
 **URL Validation:**
 - Pydantic `HttpUrl` type validates URLs
 - Accepts: `http://`, `https://` protocols
