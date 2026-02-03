@@ -97,7 +97,7 @@ class ClassSchedule(Base):
     day = Column(String(20))
     time = Column(String(20))
     description = Column(Text)
-    weighting = Column(Float, default=1.0)
+    points = Column(Float, default=1.0)
 
     gym_id = Column(Integer, ForeignKey("gym_locations.id"))
     class_type_id = Column(Integer, ForeignKey("class_types.id"))
@@ -288,3 +288,48 @@ class FactAttendance(Base):
     class_info = relationship("ClassSchedule", back_populates="attendance_records")
     class_instance = relationship("ClassInstance", back_populates="attendance_records")
     user_role = relationship("UserRole", back_populates="attendance_records")
+
+
+class ClassFeedback(Base):
+    """Represents student feedback for a specific class attendance.
+
+    Students can provide feedback (thumbs up/down + comment) within 7 days
+    of attending a class. Feedback is tied to attendance records (one per attendance).
+    """
+
+    __tablename__ = "class_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Foreign Keys
+    user_uuid = Column(
+        String, ForeignKey("users.user_uuid"), nullable=False, index=True
+    )
+    attendance_id = Column(
+        Integer, ForeignKey("attendance.id"), nullable=False, index=True
+    )
+    class_instance_id = Column(
+        Integer, ForeignKey("class_instances.id"), nullable=False, index=True
+    )
+
+    # Feedback Fields (both optional)
+    rating = Column(String(10), nullable=True)  # "thumbs_up", "thumbs_down", or NULL
+    comment = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # Constraints: One feedback per attendance record
+    __table_args__ = (
+        UniqueConstraint("attendance_id", name="_attendance_feedback_uc"),
+    )
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_uuid])
+    attendance = relationship("FactAttendance", backref="feedback")
+    class_instance = relationship("ClassInstance", backref="feedback_records")

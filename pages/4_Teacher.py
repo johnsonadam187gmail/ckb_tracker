@@ -227,8 +227,8 @@ if selected_class_name != "-- Select Class --":
             with col1:
                 st.metric("Total Students", len(df_attendance))
             with col2:
-                if len(df_attendance) > 0 and "weighting" in df_attendance.columns:
-                    total_points = df_attendance["weighting"].sum()
+                if len(df_attendance) > 0 and "points" in df_attendance.columns:
+                    total_points = df_attendance["points"].sum()
                     st.metric("Total Points", f"{total_points:.1f}")
                 else:
                     st.metric("Total Points", "0.0")
@@ -252,7 +252,7 @@ if selected_class_name != "-- Select Class --":
                 st.subheader("📋 Student Roster")
 
                 # Format display columns
-                display_columns = ["userfullname", "rank_at_time", "weighting"]
+                display_columns = ["userfullname", "rank_at_time", "points"]
                 if "teacher_name" in df_attendance.columns:
                     display_columns.append("teacher_name")
 
@@ -325,6 +325,125 @@ if selected_class_name != "-- Select Class --":
                 st.info("ℹ️ No lesson plan has been created for this class yet")
                 st.caption(
                     "Admins can add lesson plans in the Settings page under the Lessons tab"
+                )
+
+            st.divider()
+
+            # --- FEEDBACK SECTION ---
+            st.subheader("💬 Student Feedback")
+
+            # Get feedback stats for this class instance
+            if current_instance:
+                try:
+                    feedback_res = requests.get(
+                        f"{BASE_URL}/feedback/class-instance/{current_instance['id']}/stats"
+                    )
+                    if feedback_res.status_code == 200:
+                        feedback_stats = feedback_res.json()
+
+                        # Display metrics
+                        col_fb1, col_fb2, col_fb3, col_fb4 = st.columns(4)
+
+                        with col_fb1:
+                            st.metric(
+                                "Total Feedback",
+                                feedback_stats["total_feedback"],
+                            )
+
+                        with col_fb2:
+                            st.metric("👍 Thumbs Up", feedback_stats["thumbs_up_count"])
+
+                        with col_fb3:
+                            st.metric(
+                                "👎 Thumbs Down", feedback_stats["thumbs_down_count"]
+                            )
+
+                        with col_fb4:
+                            st.metric(
+                                "Response Rate",
+                                f"{feedback_stats['feedback_rate']:.1f}%",
+                            )
+
+                        # Calculate sentiment
+                        if feedback_stats["total_feedback"] > 0:
+                            positive_rate = (
+                                feedback_stats["thumbs_up_count"]
+                                / feedback_stats["total_feedback"]
+                                * 100
+                            )
+
+                            if positive_rate >= 80:
+                                sentiment = "🎉 Excellent!"
+                                sentiment_color = "green"
+                            elif positive_rate >= 60:
+                                sentiment = "😊 Good"
+                                sentiment_color = "blue"
+                            elif positive_rate >= 40:
+                                sentiment = "😐 Mixed"
+                                sentiment_color = "orange"
+                            else:
+                                sentiment = "😔 Needs Improvement"
+                                sentiment_color = "red"
+
+                            st.markdown(
+                                f"**Overall Sentiment:** :{sentiment_color}[{sentiment}]"
+                            )
+
+                            # Fetch individual feedback comments
+                            try:
+                                # Get all feedback for this class instance (need to fetch individually)
+                                comments = []
+                                if attendance_data:
+                                    for att in attendance_data:
+                                        try:
+                                            fb_res = requests.get(
+                                                f"{BASE_URL}/feedback/attendance/{att['id']}"
+                                            )
+                                            if fb_res.status_code == 200:
+                                                fb_data = fb_res.json()
+                                                if fb_data.get("comment"):
+                                                    comments.append(
+                                                        {
+                                                            "student": fb_data[
+                                                                "user_full_name"
+                                                            ],
+                                                            "rating": fb_data["rating"],
+                                                            "comment": fb_data[
+                                                                "comment"
+                                                            ],
+                                                        }
+                                                    )
+                                        except:
+                                            continue
+
+                                if comments:
+                                    with st.expander("📝 View Comments"):
+                                        for comment in comments:
+                                            rating_emoji = (
+                                                "👍"
+                                                if comment["rating"] == "thumbs_up"
+                                                else "👎"
+                                            )
+                                            st.markdown(
+                                                f"{rating_emoji} **{comment['student']}**: {comment['comment']}"
+                                            )
+                                            st.markdown("---")
+                            except Exception as e:
+                                st.caption(f"Could not load comments: {e}")
+
+                        else:
+                            st.info(
+                                "No feedback submitted yet for this class. Encourage students to share their thoughts!"
+                            )
+
+                    else:
+                        st.info("No feedback available for this class yet")
+
+                except Exception as e:
+                    st.warning(f"Could not load feedback: {e}")
+            else:
+                st.info(
+                    "Select a class and date to view feedback (class instance must exist)"
                 )
 
         elif attendance_res.status_code == 500:

@@ -46,7 +46,7 @@ class ClassBase(BaseModel):
     day: str
     time: str
     description: Optional[str] = None
-    weighting: float = 1.0
+    points: float = 1.0
 
 
 class ClassCreate(ClassBase):
@@ -68,7 +68,7 @@ class ClassUpdate(BaseModel):
     day: Optional[str] = None
     time: Optional[str] = None
     description: Optional[str] = None
-    weighting: Optional[float] = None
+    points: Optional[float] = None
 
 
 class TermBase(BaseModel):
@@ -184,7 +184,7 @@ class UserAnalyticsResponse(BaseModel):
     attendance_date: date
     user_uuid: str
     class_name: str  # From ClassSchedule
-    weighting: float  # From ClassSchedule
+    points: float  # From ClassSchedule
     rank_at_time: str  # From User
     teacher_uuid: Optional[str] = None
     teacher_name: Optional[str] = None
@@ -199,7 +199,7 @@ class ClassAttendanceResponse(BaseModel):
     user_uuid: str
     userfullname: str
     rank_at_time: str
-    weighting: float
+    points: float
     teacher_uuid: Optional[str] = None
     teacher_name: Optional[str] = None
 
@@ -255,7 +255,7 @@ class TeacherAnalyticsResponse(BaseModel):
     class_name: str
     class_date: date
     student_count: int
-    total_weighting: float
+    total_points: float
 
     class Config:
         from_attributes = True
@@ -343,6 +343,104 @@ class ClassInstanceResponse(ClassInstanceBase):
     video_folder_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# --- Feedback Schemas ---
+class FeedbackCreate(BaseModel):
+    """Schema for creating or updating feedback."""
+
+    attendance_id: int
+    rating: Optional[str] = None  # "thumbs_up", "thumbs_down", or None
+    comment: Optional[str] = None
+
+    @field_validator("rating")
+    @classmethod
+    def validate_rating(cls, v):
+        """Validate rating is one of the allowed values."""
+        if v and v not in ["thumbs_up", "thumbs_down"]:
+            raise ValueError('Rating must be "thumbs_up" or "thumbs_down"')
+        return v
+
+    class Config:
+        from_attributes = True
+
+
+class FeedbackUpdate(BaseModel):
+    """Schema for updating existing feedback."""
+
+    rating: Optional[str] = None
+    comment: Optional[str] = None
+
+    @field_validator("rating")
+    @classmethod
+    def validate_rating(cls, v):
+        """Validate rating is one of the allowed values."""
+        if v and v not in ["thumbs_up", "thumbs_down"]:
+            raise ValueError('Rating must be "thumbs_up" or "thumbs_down"')
+        return v
+
+    class Config:
+        from_attributes = True
+
+
+class FeedbackResponse(BaseModel):
+    """Schema for feedback responses with joined data."""
+
+    id: int
+    user_uuid: str
+    attendance_id: int
+    class_instance_id: int
+    rating: Optional[str]
+    comment: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    # Joined fields from related tables
+    user_full_name: Optional[str] = None
+    class_name: Optional[str] = None
+    class_date: Optional[date] = None
+    teacher_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FeedbackStatsResponse(BaseModel):
+    """Schema for aggregated feedback statistics."""
+
+    class_instance_id: int
+    class_name: str
+    class_date: date
+    teacher_name: Optional[str] = None
+    thumbs_up_count: int
+    thumbs_down_count: int
+    total_feedback: int
+    total_attendees: int
+    feedback_rate: float  # Percentage of attendees who left feedback
+
+    class Config:
+        from_attributes = True
+
+
+# ===== Authentication Schemas =====
+class LoginRequest(BaseModel):
+    """Schema for user login request."""
+
+    email: EmailStr
+    password: str
+
+    class Config:
+        from_attributes = True
+
+
+class SetPasswordRequest(BaseModel):
+    """Schema for setting/updating user password."""
+
+    user_uuid: str
+    password: str
 
     class Config:
         from_attributes = True

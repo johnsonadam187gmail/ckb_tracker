@@ -1,8 +1,39 @@
 import streamlit as st
 import requests
 import pandas as pd
+import re
 from datetime import date
 from pathlib import Path
+
+
+# Password validation function
+def validate_password(password):
+    """
+    Validate password strength.
+    Returns (is_valid, error_message)
+    """
+    if not password:
+        return False, "Password is required"
+
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+
+    if not re.search(r"[A-Z]", password):
+        return False, "Password must contain at least one uppercase letter"
+
+    if not re.search(r"[a-z]", password):
+        return False, "Password must contain at least one lowercase letter"
+
+    if not re.search(r"\d", password):
+        return False, "Password must contain at least one number"
+
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        return (
+            False,
+            'Password must contain at least one special character (!@#$%^&*(),.?":{}|<>)',
+        )
+
+    return True, ""
 
 
 # Function to load CSS files
@@ -110,7 +141,15 @@ if check_password():
             st.error(f"⚠️ Connection failed: {e}")
 
     # --- TABS DEFINITION ---
-    tab_user, tab_class, tab_gym_types, tab_terms, tab_targets, tab_lessons = st.tabs(
+    (
+        tab_user,
+        tab_class,
+        tab_gym_types,
+        tab_terms,
+        tab_targets,
+        tab_lessons,
+        tab_passwords,
+    ) = st.tabs(
         [
             "🥋 User Admin",
             "📅 Class Schedule",
@@ -118,6 +157,7 @@ if check_password():
             "🗓️ Terms",
             "🎯 Targets",
             "📚 Lessons",
+            "🔐 Student Passwords",
         ]
     )
 
@@ -376,6 +416,82 @@ if check_password():
                                     )
                                 else:
                                     st.info("No role history available")
+
+                        # --- PASSWORD RESET SECTION ---
+                        st.divider()
+                        st.subheader("🔐 Reset Password (Account Recovery)")
+                        st.caption(
+                            "Reset this member's password to recover their account access. "
+                            "Password must meet security requirements."
+                        )
+
+                        with st.form(f"reset_password_form_{member['user_uuid']}"):
+                            st.caption(
+                                "Password must be at least 8 characters and include: "
+                                "uppercase, lowercase, number, and special character"
+                            )
+
+                            reset_password = st.text_input(
+                                "New Password *",
+                                type="password",
+                                help="Required: Min 8 chars with uppercase, lowercase, number, and special character",
+                                key=f"reset_pwd_{member['user_uuid']}",
+                            )
+                            reset_confirm = st.text_input(
+                                "Confirm New Password *",
+                                type="password",
+                                key=f"reset_confirm_{member['user_uuid']}",
+                            )
+
+                            submit_reset = st.form_submit_button("🔄 Reset Password")
+
+                            if submit_reset:
+                                if not reset_password:
+                                    st.error("❌ Password cannot be empty")
+                                elif reset_password != reset_confirm:
+                                    st.error("❌ Passwords do not match")
+                                else:
+                                    # Validate password strength
+                                    is_valid, error_msg = validate_password(
+                                        reset_password
+                                    )
+                                    if not is_valid:
+                                        st.error(f"❌ {error_msg}")
+                                    else:
+                                        # Call API to reset password
+                                        try:
+                                            password_data = {
+                                                "user_uuid": member["user_uuid"],
+                                                "password": reset_password,
+                                            }
+                                            response = requests.post(
+                                                f"{BASE_URL}/auth/set-password",
+                                                json=password_data,
+                                            )
+                                            if response.status_code == 200:
+                                                st.success(
+                                                    f"✅ Password reset successfully for {member['first_name']} {member['last_name']}! "
+                                                    "They can now log in with the new password."
+                                                )
+                                                st.rerun()
+                                            else:
+                                                error_detail = (
+                                                    response.json().get(
+                                                        "detail", "Unknown error"
+                                                    )
+                                                    if response.status_code != 500
+                                                    else response.text
+                                                )
+                                                st.error(f"❌ Failed: {error_detail}")
+                                                st.caption(
+                                                    f"Status code: {response.status_code}"
+                                                )
+                                        except Exception as e:
+                                            st.error(f"⚠️ Connection error: {e}")
+                                            st.caption(
+                                                f"API URL: {BASE_URL}/auth/set-password"
+                                            )
+
             else:
                 st.error(f"Error fetching users: {u_res.text}")
 
@@ -430,7 +546,7 @@ if check_password():
                                     "class_name": c_name,
                                     "day": c_day,
                                     "time": c_time,
-                                    "weighting": c_wght,
+                                    "points": c_wght,
                                     "gym_id": gym_opts[c_gym],
                                     "class_type_id": type_opts[c_typ],
                                 },
@@ -439,7 +555,7 @@ if check_password():
             if classes:
                 st.subheader("Current Active Schedule")
                 st.dataframe(
-                    pd.DataFrame(classes)[["class_name", "day", "time", "weighting"]],
+                    pd.DataFrame(classes)[["class_name", "day", "time", "points"]],
                     width="stretch",
                     hide_index=True,
                 )
@@ -978,668 +1094,209 @@ if check_password():
                                                             f"⚠️ Connection failed: {e}"
                                                         )
 
-                                            # Delete button (outside form)
-                                            if st.button(
-                                                "🗑️ Delete Lesson", type="secondary"
-                                            ):
-                                                try:
-                                                    del_res = requests.delete(
-                                                        f"{BASE_URL}/lessons/{lesson_id}"
-                                                    )
-                                                    if del_res.status_code == 200:
-                                                        st.success("✅ Lesson deleted!")
-                                                        st.rerun()
-                                                    else:
-                                                        detail = del_res.json().get(
-                                                            "detail", "Unknown error"
-                                                        )
-                                                        st.error(f"❌ Error: {detail}")
-                                                except Exception as e:
-                                                    st.error(
-                                                        f"⚠️ Connection failed: {e}"
-                                                    )
-                            else:
-                                st.info("ℹ️ No lessons in library yet")
-                        else:
-                            st.error(
-                                f"❌ Failed to fetch lessons: {lessons_res.status_code}"
-                            )
-
-                # --- SUBTAB 3: ASSIGN LESSONS TO DATES ---
-                with subtab_assign:
-                    st.subheader("Assign Lessons to Class Dates")
-                    st.caption("Link curriculum lessons to specific class instances")
-
-                    if not curricula:
-                        st.warning("⚠️ No curricula found. Create a curriculum first.")
-                    else:
-                        # Assignment form
-                        with st.expander("📅 Assign Lesson to Date", expanded=True):
-                            with st.form("assign_lesson_form"):
-                                col1, col2 = st.columns(2)
-
-                                with col1:
-                                    class_opts = {
-                                        f"{c['class_name']} ({c['day']} {c['time']})": c[
-                                            "id"
-                                        ]
-                                        for c in classes
-                                    }
-                                    selected_class = st.selectbox(
-                                        "Select Class", options=list(class_opts.keys())
-                                    )
-                                    class_id = class_opts[selected_class]
-
-                                with col2:
-                                    lesson_date = st.date_input(
-                                        "Class Date", value=date.today()
-                                    )
-
-                                # Find curriculum for selected class
-                                class_curriculum = next(
-                                    (c for c in curricula if c["class_id"] == class_id),
-                                    None,
-                                )
-
-                                if not class_curriculum:
-                                    st.warning(
-                                        f"⚠️ No curriculum exists for this class. Create one first in the 'Curricula' tab."
-                                    )
-                                    lesson_opts = {}
-                                else:
-                                    # Fetch lessons for this curriculum
-                                    curr_lessons_res = requests.get(
-                                        f"{BASE_URL}/lessons/",
-                                        params={
-                                            "curriculum_id": class_curriculum["id"]
-                                        },
-                                    )
-
-                                    if (
-                                        curr_lessons_res.status_code == 200
-                                        and curr_lessons_res.json()
-                                    ):
-                                        curr_lessons = curr_lessons_res.json()
-                                        lesson_opts = {
-                                            lesson["title"]: lesson["id"]
-                                            for lesson in curr_lessons
-                                        }
-
-                                        selected_lesson_title = st.selectbox(
-                                            "Select Lesson from Curriculum",
-                                            options=["-- None --"]
-                                            + list(lesson_opts.keys()),
-                                        )
-                                    else:
-                                        st.info(
-                                            "ℹ️ No lessons in this curriculum yet. Create lessons in the 'Lesson Library' tab."
-                                        )
-                                        lesson_opts = {}
-
-                                submit_assign = st.form_submit_button("Assign Lesson")
-
-                                if submit_assign:
-                                    lesson_id = None
-                                    if (
-                                        lesson_opts
-                                        and selected_lesson_title != "-- None --"
-                                    ):
-                                        lesson_id = lesson_opts.get(
-                                            selected_lesson_title
-                                        )
-
-                                    payload = {
-                                        "class_id": class_id,
-                                        "class_date": str(lesson_date),
-                                        "lesson_id": lesson_id,
-                                        "teacher_uuid": None,
-                                    }
-
-                                    try:
-                                        res = requests.post(
-                                            f"{BASE_URL}/class-instances/", json=payload
-                                        )
-                                        if res.status_code == 200:
-                                            st.success("✅ Lesson assigned to date!")
-                                            st.rerun()
-                                        else:
-                                            detail = res.json().get(
-                                                "detail", "Unknown error"
-                                            )
-                                            st.error(f"❌ Error: {detail}")
-                                    except Exception as e:
-                                        st.error(f"⚠️ Connection failed: {e}")
-
-                        st.divider()
-
-                        # Display assigned lessons
-                        st.subheader("📋 Assigned Lessons")
-
-                        # Filters
-                        col_f1, col_f2, col_f3 = st.columns(3)
-                        with col_f1:
-                            class_opts_all = {
-                                f"{c['class_name']} ({c['day']} {c['time']})": c["id"]
-                                for c in classes
-                            }
-                            filter_class = st.selectbox(
-                                "Filter by Class",
-                                options=["-- All Classes --"]
-                                + list(class_opts_all.keys()),
-                                key="filter_class",
-                            )
-                        with col_f2:
-                            filter_start = st.date_input(
-                                "From Date",
-                                value=date.today().replace(day=1),
-                                key="filter_start",
-                            )
-                        with col_f3:
-                            filter_end = st.date_input(
-                                "To Date", value=date.today(), key="filter_end"
-                            )
-
-                        # Fetch class instances with filters
-                        params = {}
-                        if filter_class != "-- All Classes --":
-                            params["class_id"] = class_opts_all[filter_class]
-                        if filter_start:
-                            params["start_date"] = str(filter_start)
-                        if filter_end:
-                            params["end_date"] = str(filter_end)
-
-                        instances_res = requests.get(
-                            f"{BASE_URL}/class-instances/", params=params
-                        )
-
-                        if instances_res.status_code == 200:
-                            instances = instances_res.json()
-
-                            if instances:
-                                instances_df = pd.DataFrame(instances)
-
-                                # Format display
-                                display_df = instances_df[
-                                    [
-                                        "class_name",
-                                        "class_date",
-                                        "teacher_name",
-                                        "lesson_title",
-                                        "id",
-                                    ]
-                                ].copy()
-                                display_df.columns = [
-                                    "Class",
-                                    "Date",
-                                    "Teacher",
-                                    "Lesson",
-                                    "ID",
-                                ]
-                                display_df["Date"] = pd.to_datetime(
-                                    display_df["Date"]
-                                ).dt.strftime("%Y-%m-%d")
-                                display_df["Teacher"] = display_df["Teacher"].fillna(
-                                    "Not Assigned"
-                                )
-                                display_df["Lesson"] = display_df["Lesson"].fillna(
-                                    "-- Not Assigned --"
-                                )
-
-                                st.dataframe(
-                                    display_df.drop(columns=["ID"]),
-                                    width="stretch",
-                                    hide_index=True,
-                                )
-
-                                # Edit/Unassign lesson
-                                with st.expander("✏️ Edit Assignment"):
-                                    instance_map = {
-                                        f"{row['Class']} - {row['Date']}": row["ID"]
-                                        for _, row in display_df.iterrows()
-                                    }
-                                    selected_instance = st.selectbox(
-                                        "Select class instance:",
-                                        options=["-- Select --"]
-                                        + list(instance_map.keys()),
-                                        key="edit_instance_select",
-                                    )
-
-                                    if selected_instance != "-- Select --":
-                                        instance_id = instance_map[selected_instance]
-
-                                        # Fetch instance details
-                                        instance_detail_res = requests.get(
-                                            f"{BASE_URL}/class-instances/{instance_id}"
-                                        )
-                                        if instance_detail_res.status_code == 200:
-                                            instance_detail = instance_detail_res.json()
-
-                                            # Show current assignment
-                                            current_lesson = instance_detail.get(
-                                                "lesson_title", "Not assigned"
-                                            )
-                                            st.info(
-                                                f"**Current Lesson:** {current_lesson}"
-                                            )
-
-                                            # Re-assignment or unassignment
-                                            col_btn1, col_btn2 = st.columns(2)
-
-                                            with col_btn1:
-                                                if st.button(
-                                                    "🗑️ Remove Lesson Assignment",
-                                                    type="secondary",
-                                                ):
-                                                    try:
-                                                        update_res = requests.put(
-                                                            f"{BASE_URL}/class-instances/{instance_id}",
-                                                            json={"lesson_id": None},
-                                                        )
-                                                        if (
-                                                            update_res.status_code
-                                                            == 200
-                                                        ):
-                                                            st.success(
-                                                                "✅ Lesson unassigned!"
-                                                            )
-                                                            st.rerun()
-                                                        else:
-                                                            detail = (
-                                                                update_res.json().get(
-                                                                    "detail",
-                                                                    "Unknown error",
-                                                                )
-                                                            )
-                                                            st.error(
-                                                                f"❌ Error: {detail}"
-                                                            )
-                                                    except Exception as e:
-                                                        st.error(
-                                                            f"⚠️ Connection failed: {e}"
-                                                        )
-                            else:
-                                st.info("ℹ️ No class instances found")
-                                st.caption(
-                                    "Class instances are created when students check in or when you assign a lesson"
-                                )
-                        else:
-                            st.error(
-                                f"❌ Failed to fetch instances: {instances_res.status_code}"
-                            )
-
-                # --- SUBTAB 4: TEACHER ASSIGNMENTS ---
-                with subtab_teachers:
-                    st.subheader("👨‍🏫 Teacher Assignment Management")
-                    st.caption("Assign and manage teachers for class instances")
-
-                    # === SECTION A: ASSIGN/UPDATE TEACHER FORM ===
-                    with st.expander("💾 Assign Teacher to Class Date", expanded=True):
-                        with st.form("assign_teacher_form"):
-                            col1, col2, col3 = st.columns(3)
-
-                            with col1:
-                                # Class selection
-                                class_opts = {
-                                    f"{c['class_name']} ({c['day']} {c['time']})": c[
-                                        "id"
-                                    ]
-                                    for c in classes
-                                }
-                                selected_class = st.selectbox(
-                                    "Select Class",
-                                    options=list(class_opts.keys()),
-                                    key="teacher_assign_class",
-                                )
-                                assign_class_id = class_opts[selected_class]
-
-                            with col2:
-                                # Date selection
-                                assign_date = st.date_input(
-                                    "Class Date",
-                                    value=date.today(),
-                                    key="teacher_assign_date",
-                                )
-
-                            with col3:
-                                # Teacher selection
-                                teachers_res = requests.get(
-                                    f"{BASE_URL}/roles/users/by-role/Teacher"
-                                )
-                                teachers_list = (
-                                    teachers_res.json()
-                                    if teachers_res.status_code == 200
-                                    else []
-                                )
-
-                                teacher_opts = {"-- No Teacher Assigned --": None}
-                                if teachers_list:
-                                    teacher_opts.update(
-                                        {
-                                            f"{t['first_name']} {t['last_name']}": t[
-                                                "user_uuid"
-                                            ]
-                                            for t in teachers_list
-                                        }
-                                    )
-
-                                selected_teacher = st.selectbox(
-                                    "Assign Teacher",
-                                    options=list(teacher_opts.keys()),
-                                    help="Select teacher for this class date",
-                                    key="teacher_assign_select",
-                                )
-                                selected_teacher_uuid = teacher_opts[selected_teacher]
-
-                            submit_teacher = st.form_submit_button(
-                                "💾 Save Teacher Assignment"
-                            )
-
-                            if submit_teacher:
-                                # Check if ClassInstance exists
-                                try:
-                                    instance_check = requests.get(
-                                        f"{BASE_URL}/class-instances/by-date/",
-                                        params={
-                                            "class_id": assign_class_id,
-                                            "class_date": str(assign_date),
-                                        },
-                                    )
-
-                                    if instance_check.status_code == 200:
-                                        # Update existing instance
-                                        instance_id = instance_check.json()["id"]
-                                        update_res = requests.put(
-                                            f"{BASE_URL}/class-instances/{instance_id}",
-                                            json={
-                                                "teacher_uuid": selected_teacher_uuid
-                                            },
-                                        )
-                                        action = "updated"
-                                    else:
-                                        # Create new instance
-                                        update_res = requests.post(
-                                            f"{BASE_URL}/class-instances/",
-                                            json={
-                                                "class_id": assign_class_id,
-                                                "class_date": str(assign_date),
-                                                "teacher_uuid": selected_teacher_uuid,
-                                                "lesson_id": None,
-                                            },
-                                        )
-                                        action = "assigned"
-
-                                    if update_res.status_code == 200:
-                                        teacher_name = (
-                                            selected_teacher
-                                            if selected_teacher
-                                            != "-- No Teacher Assigned --"
-                                            else "removed"
-                                        )
-                                        st.success(f"✅ Teacher {action} successfully!")
-                                        st.rerun()
-                                    else:
-                                        detail = update_res.json().get(
-                                            "detail", "Unknown error"
-                                        )
-                                        st.error(f"❌ Error: {detail}")
-
-                                except Exception as e:
-                                    st.error(f"⚠️ Connection failed: {e}")
-
-                    st.divider()
-
-                    # === SECTION B: VIEW ALL TEACHER ASSIGNMENTS ===
-                    st.subheader("📋 Current Teacher Assignments")
-
-                    # Filters
-                    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-
-                    with col_f1:
-                        filter_class_opts = {
-                            f"{c['class_name']} ({c['day']} {c['time']})": c["id"]
-                            for c in classes
-                        }
-                        filter_class = st.selectbox(
-                            "Filter by Class",
-                            options=["-- All Classes --"]
-                            + list(filter_class_opts.keys()),
-                            key="teacher_filter_class",
-                        )
-
-                    with col_f2:
-                        filter_teacher_opts = ["-- All Teachers --"]
-                        if teachers_list:
-                            filter_teacher_opts.extend(
-                                [
-                                    f"{t['first_name']} {t['last_name']}"
-                                    for t in teachers_list
-                                ]
-                            )
-
-                        filter_teacher = st.selectbox(
-                            "Filter by Teacher",
-                            options=filter_teacher_opts,
-                            key="teacher_filter_teacher",
-                        )
-
-                    with col_f3:
-                        filter_start = st.date_input(
-                            "From Date",
-                            value=date.today().replace(day=1),
-                            key="teacher_filter_start",
-                        )
-
-                    with col_f4:
-                        filter_end = st.date_input(
-                            "To Date", value=date.today(), key="teacher_filter_end"
-                        )
-
-                    # Fetch class instances with filters
-                    params = {}
-                    if filter_class != "-- All Classes --":
-                        params["class_id"] = filter_class_opts[filter_class]
-                    if filter_teacher != "-- All Teachers --":
-                        # Find teacher UUID
-                        teacher_name_parts = filter_teacher.split()
-                        if len(teacher_name_parts) >= 2:
-                            matching_teacher = next(
-                                (
-                                    t
-                                    for t in teachers_list
-                                    if t["first_name"] == teacher_name_parts[0]
-                                    and t["last_name"]
-                                    == " ".join(teacher_name_parts[1:])
-                                ),
-                                None,
-                            )
-                            if matching_teacher:
-                                params["teacher_uuid"] = matching_teacher["user_uuid"]
-                    if filter_start:
-                        params["start_date"] = str(filter_start)
-                    if filter_end:
-                        params["end_date"] = str(filter_end)
-
-                    instances_res = requests.get(
-                        f"{BASE_URL}/class-instances/", params=params
-                    )
-
-                    if instances_res.status_code == 200:
-                        instances = instances_res.json()
-
-                        if instances:
-                            # Prepare display data
-                            instances_df = pd.DataFrame(instances)
-                            display_df = instances_df[
-                                [
-                                    "class_name",
-                                    "class_date",
-                                    "teacher_name",
-                                    "lesson_title",
-                                    "id",
-                                ]
-                            ].copy()
-                            display_df.columns = [
-                                "Class",
-                                "Date",
-                                "Teacher",
-                                "Lesson",
-                                "ID",
-                            ]
-
-                            # Format dates
-                            display_df["Date"] = pd.to_datetime(
-                                display_df["Date"]
-                            ).dt.strftime("%Y-%m-%d")
-
-                            # Handle null values
-                            display_df["Teacher"] = display_df["Teacher"].fillna(
-                                "Not Assigned"
-                            )
-                            display_df["Lesson"] = display_df["Lesson"].fillna(
-                                "No Lesson"
-                            )
-
-                            # Show summary metrics
-                            col_m1, col_m2, col_m3 = st.columns(3)
-                            with col_m1:
-                                st.metric("Total Instances", len(display_df))
-                            with col_m2:
-                                assigned_count = (
-                                    display_df["Teacher"] != "Not Assigned"
-                                ).sum()
-                                st.metric("Teachers Assigned", assigned_count)
-                            with col_m3:
-                                unique_teachers = display_df[
-                                    display_df["Teacher"] != "Not Assigned"
-                                ]["Teacher"].nunique()
-                                st.metric("Unique Teachers", unique_teachers)
-
-                            # Display table
-                            st.dataframe(
-                                display_df.drop(columns=["ID"]),
-                                width="stretch",
-                                hide_index=True,
-                            )
-
-                            # === SECTION C: EDIT/REMOVE ACTIONS ===
-                            with st.expander("✏️ Edit Teacher Assignment"):
-                                instance_map = {
-                                    f"{row['Class']} - {row['Date']}": row["ID"]
-                                    for _, row in display_df.iterrows()
-                                }
-
-                                selected_instance = st.selectbox(
-                                    "Select class instance to edit:",
-                                    options=["-- Select --"]
-                                    + list(instance_map.keys()),
-                                    key="edit_teacher_instance",
-                                )
-
-                                if selected_instance != "-- Select --":
-                                    instance_id = instance_map[selected_instance]
-
-                                    # Fetch instance details
-                                    detail_res = requests.get(
-                                        f"{BASE_URL}/class-instances/{instance_id}"
-                                    )
-
-                                    if detail_res.status_code == 200:
-                                        instance_detail = detail_res.json()
-
-                                        # Show current teacher
-                                        current_teacher = instance_detail.get(
-                                            "teacher_name", "Not assigned"
-                                        )
-                                        st.info(
-                                            f"**Current Teacher:** {current_teacher}"
-                                        )
-
-                                        # Change teacher form
-                                        with st.form("edit_teacher_assignment_form"):
-                                            st.write("**Update Teacher:**")
-
-                                            new_teacher_opts = {
-                                                "-- No Teacher Assigned --": None
-                                            }
-                                            if teachers_list:
-                                                new_teacher_opts.update(
-                                                    {
-                                                        f"{t['first_name']} {t['last_name']}": t[
-                                                            "user_uuid"
-                                                        ]
-                                                        for t in teachers_list
-                                                    }
-                                                )
-
-                                            new_teacher = st.selectbox(
-                                                "Select New Teacher",
-                                                options=list(new_teacher_opts.keys()),
-                                                key="new_teacher_select",
-                                            )
-                                            new_teacher_uuid = new_teacher_opts[
-                                                new_teacher
-                                            ]
-
-                                            if st.form_submit_button("Update Teacher"):
-                                                try:
-                                                    update_res = requests.put(
-                                                        f"{BASE_URL}/class-instances/{instance_id}",
-                                                        json={
-                                                            "teacher_uuid": new_teacher_uuid
-                                                        },
-                                                    )
-
-                                                    if update_res.status_code == 200:
-                                                        st.success(
-                                                            "✅ Teacher assignment updated!"
-                                                        )
-                                                        st.rerun()
-                                                    else:
-                                                        detail = update_res.json().get(
-                                                            "detail", "Unknown error"
-                                                        )
-                                                        st.error(f"❌ Error: {detail}")
-                                                except Exception as e:
-                                                    st.error(
-                                                        f"⚠️ Connection failed: {e}"
-                                                    )
-
-                                        # Remove teacher button (outside form)
+                                        # Delete button (outside form)
                                         if st.button(
-                                            "🗑️ Remove Teacher Assignment",
-                                            type="secondary",
-                                            key="remove_teacher_btn",
+                                            "🗑️ Delete Lesson", type="secondary"
                                         ):
                                             try:
-                                                remove_res = requests.put(
-                                                    f"{BASE_URL}/class-instances/{instance_id}",
-                                                    json={"teacher_uuid": None},
+                                                del_res = requests.delete(
+                                                    f"{BASE_URL}/lessons/{lesson_id}"
                                                 )
-
-                                                if remove_res.status_code == 200:
-                                                    st.success("✅ Teacher removed!")
+                                                if del_res.status_code == 200:
+                                                    st.success("✅ Lesson deleted!")
                                                     st.rerun()
                                                 else:
-                                                    detail = remove_res.json().get(
+                                                    detail = del_res.json().get(
                                                         "detail", "Unknown error"
                                                     )
                                                     st.error(f"❌ Error: {detail}")
                                             except Exception as e:
                                                 st.error(f"⚠️ Connection failed: {e}")
-                        else:
-                            st.info("ℹ️ No class instances found with current filters")
-                            st.caption(
-                                "Class instances are created when students check in or when you assign a teacher/lesson"
-                            )
-                    else:
-                        st.error(
-                            f"❌ Failed to fetch class instances: {instances_res.status_code}"
-                        )
-
         except Exception as e:
             st.error(f"⚠️ Connection error: {e}")
 
-    st.success("Welcome, Admin")
-    # tab_user, tab_class, etc...
+    # --- 7. STUDENT PASSWORDS TAB ---
+    with tab_passwords:
+        st.header("🔐 Student Password Management")
+        st.markdown(
+            "Set or remove passwords for students to access the **Student Portal**. Students use their email and password to log in and view analytics + submit feedback."
+        )
+
+        # Fetch all users
+        try:
+            users_res = requests.get(f"{BASE_URL}/users/")
+            if users_res.status_code == 200:
+                all_users = users_res.json()
+            else:
+                all_users = []
+                st.error("Failed to fetch users")
+        except Exception as e:
+            st.error(f"Connection error: {e}")
+            all_users = []
+
+        if not all_users:
+            st.warning("No users found")
+        else:
+            # --- SET PASSWORD FORM ---
+            st.subheader("🔑 Set/Update Password")
+
+            with st.form("set_password_form"):
+                # User selection
+                user_options = {
+                    f"{u['first_name']} {u['last_name']} ({u['email']})": u
+                    for u in all_users
+                }
+                selected_user_label = st.selectbox(
+                    "Select Student", options=list(user_options.keys())
+                )
+                selected_user = user_options[selected_user_label]
+
+                # Password input
+                st.caption(
+                    "Password must be at least 8 characters and include: "
+                    "uppercase, lowercase, number, and special character"
+                )
+                new_password = st.text_input(
+                    "New Password *",
+                    type="password",
+                    help="Required: Min 8 chars with uppercase, lowercase, number, and special character",
+                )
+                confirm_password = st.text_input("Confirm Password *", type="password")
+
+                submit_password = st.form_submit_button("💾 Set Password")
+
+                if submit_password:
+                    if not new_password:
+                        st.error("❌ Password cannot be empty")
+                    elif new_password != confirm_password:
+                        st.error("❌ Passwords do not match")
+                    else:
+                        # Validate password strength
+                        is_valid, error_msg = validate_password(new_password)
+                        if not is_valid:
+                            st.error(f"❌ {error_msg}")
+                        else:
+                            # Call API
+                            try:
+                                password_data = {
+                                    "user_uuid": selected_user["user_uuid"],
+                                    "password": new_password,
+                                }
+                                response = requests.post(
+                                    f"{BASE_URL}/auth/set-password", json=password_data
+                                )
+                                if response.status_code == 200:
+                                    st.success(
+                                        f"✅ Password set for {selected_user['first_name']} {selected_user['last_name']}"
+                                    )
+                                else:
+                                    st.error(f"❌ Failed: {response.text}")
+                            except Exception as e:
+                                st.error(f"⚠️ Connection error: {e}")
+
+            st.divider()
+
+            # --- PASSWORD STATUS TABLE ---
+            st.subheader("📋 Password Status")
+
+            # Check password status for all users
+            password_statuses = []
+            for user in all_users:
+                try:
+                    status_res = requests.get(
+                        f"{BASE_URL}/auth/check-password/{user['user_uuid']}"
+                    )
+                    if status_res.status_code == 200:
+                        status_data = status_res.json()
+                        password_statuses.append(
+                            {
+                                "name": f"{user['first_name']} {user['last_name']}",
+                                "email": user["email"],
+                                "user_uuid": user["user_uuid"],
+                                "has_password": status_data["has_password"],
+                            }
+                        )
+                except:
+                    password_statuses.append(
+                        {
+                            "name": f"{user['first_name']} {user['last_name']}",
+                            "email": user["email"],
+                            "user_uuid": user["user_uuid"],
+                            "has_password": False,
+                        }
+                    )
+
+            if password_statuses:
+                df_passwords = pd.DataFrame(password_statuses)
+
+                # Summary metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    total_users = len(df_passwords)
+                    st.metric("Total Students", total_users)
+                with col2:
+                    with_passwords = df_passwords["has_password"].sum()
+                    st.metric("With Passwords", with_passwords)
+                with col3:
+                    without_passwords = total_users - with_passwords
+                    st.metric("Without Passwords", without_passwords)
+
+                st.markdown("---")
+
+                # Display table with remove buttons
+                for idx, row in df_passwords.iterrows():
+                    col1, col2, col3, col4 = st.columns([3, 3, 2, 2])
+
+                    with col1:
+                        st.write(f"**{row['name']}**")
+
+                    with col2:
+                        st.write(row["email"])
+
+                    with col3:
+                        if row["has_password"]:
+                            st.success("✅ Active")
+                        else:
+                            st.warning("❌ No Password")
+
+                    with col4:
+                        if row["has_password"]:
+                            if st.button(
+                                "🗑️ Remove", key=f"remove_pwd_{row['user_uuid']}"
+                            ):
+                                # Remove password
+                                try:
+                                    remove_res = requests.delete(
+                                        f"{BASE_URL}/auth/remove-password/{row['user_uuid']}"
+                                    )
+                                    if remove_res.status_code == 200:
+                                        st.success(f"✅ Password removed")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Failed: {remove_res.text}")
+                                except Exception as e:
+                                    st.error(f"⚠️ Error: {e}")
+
+            st.divider()
+
+            # --- INSTRUCTIONS ---
+            st.subheader("ℹ️ How It Works")
+            st.markdown(
+                """
+                1. **Set Password**: Select a student and create a strong password (min 8 chars with uppercase, lowercase, number, and special character)
+                2. **Student Access**: Students visit the **Student Portal** page and log in with their email + password
+                3. **Features**: Students can view their personal analytics and submit feedback on recent classes
+                4. **Remove Password**: Click the "Remove" button to disable a student's access
+                5. **Security**: Passwords are hashed using bcrypt for security
+                
+                **Password Requirements:**
+                - Minimum 8 characters
+                - At least one uppercase letter (A-Z)
+                - At least one lowercase letter (a-z)
+                - At least one number (0-9)
+                - At least one special character (!@#$%^&*(),.?\":{}|<>)
+                """
+            )
+
 else:
     st.stop()  # Prevents the rest of the page from running

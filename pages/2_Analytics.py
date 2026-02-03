@@ -172,25 +172,14 @@ if analytics_type == "Student":
     if attendance_data:
         df_att = pd.DataFrame(attendance_data)
 
-        # 1. Identify the weighting column dynamically
-        weight_col = next(
-            (
-                c
-                for c in ["class_weighting", "weighting", "weight"]
-                if c in df_att.columns
-            ),
-            None,
-        )
+        # 1. Use points column
+        points_col = "points"
 
-        if weight_col:
-            # Convert to numeric to ensure we can sum safely
-            df_att[weight_col] = pd.to_numeric(
-                df_att[weight_col], errors="coerce"
-            ).fillna(0)
-            total_points = float(df_att[weight_col].sum())
-        else:
-            # Fallback if the column is missing: count classes as 1.0 each
-            total_points = float(len(attendance_data))
+        # Convert to numeric to ensure we can sum safely
+        df_att[points_col] = pd.to_numeric(df_att[points_col], errors="coerce").fillna(
+            0
+        )
+        total_points = float(df_att[points_col].sum())
 
         total_classes = len(attendance_data)
 
@@ -259,29 +248,22 @@ if analytics_type == "Student":
         name_col = next(
             (c for c in ["class_name", "name", "label"] if c in df_att.columns), None
         )
-        weight_col = next(
-            (
-                c
-                for c in ["class_weighting", "weighting", "weight"]
-                if c in df_att.columns
-            ),
-            None,
-        )
+        points_col = "points"
 
         # 2. Validation: Ensure we have at least the basics
-        if not weight_col:
-            # Fallback: Create a weighting of 1.0 if the column is missing
-            df_att["class_weighting"] = 1.0
-            weight_col = "class_weighting"
+        if "points" not in df_att.columns:
+            # Fallback: Create points of 1.0 if the column is missing
+            df_att["points"] = 1.0
+            points_col = "points"
 
         if time_col:
             df_att["date"] = pd.to_datetime(df_att[time_col]).dt.date
 
             with col_left:
                 st.subheader("Attendance History")
-                # Group by date and sum weights
-                daily_points = df_att.groupby("date")[weight_col].sum().reset_index()
-                daily_points["cumulative"] = daily_points[weight_col].cumsum()
+                # Group by date and sum points
+                daily_points = df_att.groupby("date")[points_col].sum().reset_index()
+                daily_points["cumulative"] = daily_points[points_col].cumsum()
 
                 fig_line = px.area(
                     daily_points,
@@ -426,3 +408,201 @@ elif analytics_type == "Teacher":
             st.error("Failed to fetch teacher analytics")
     except Exception as e:
         st.error(f"Error fetching teacher analytics: {e}")
+
+
+# ===== FEEDBACK ANALYTICS SECTION =====
+st.divider()
+st.header("💬 Class Feedback Analytics")
+
+# Fetch all class instances
+try:
+    instances_response = requests.get(f"{BASE_URL}/class-instances/")
+    if instances_response.status_code == 200:
+        all_instances = instances_response.json()
+    else:
+        all_instances = []
+except Exception as e:
+    st.error(f"Failed to fetch class instances: {e}")
+    all_instances = []
+
+if not all_instances:
+    st.info("No class instances found.")
+else:
+    # Filter instances with feedback
+    instances_with_feedback = []
+    feedback_stats = []
+
+    for instance in all_instances:
+        try:
+            stats_response = requests.get(
+                f"{BASE_URL}/feedback/class-instance/{instance['id']}/stats"
+            )
+            if stats_response.status_code == 200:
+                stats = stats_response.json()
+                if stats["total_feedback"] > 0:
+                    feedback_stats.append(stats)
+                    instances_with_feedback.append(instance)
+        except:
+            continue
+
+    if not feedback_stats:
+        st.info(
+            "No feedback submitted yet. Encourage students to share their thoughts!"
+        )
+    else:
+        df_feedback = pd.DataFrame(feedback_stats)
+
+        # --- FEEDBACK METRICS ---
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            total_feedback = df_feedback["total_feedback"].sum()
+            st.metric("Total Feedback", total_feedback)
+
+        with col2:
+            total_thumbs_up = df_feedback["thumbs_up_count"].sum()
+            st.metric("👍 Thumbs Up", total_thumbs_up)
+
+        with col3:
+            total_thumbs_down = df_feedback["thumbs_down_count"].sum()
+            st.metric("👎 Thumbs Down", total_thumbs_down)
+
+        with col4:
+            avg_feedback_rate = df_feedback["feedback_rate"].mean()
+            st.metric("Avg Feedback Rate", f"{avg_feedback_rate:.1f}%")
+
+        st.divider()
+
+        # --- FEEDBACK TREND CHART ---
+        st.subheader("📈 Feedback Trend Over Time")
+
+        df_feedback["class_date"] = pd.to_datetime(df_feedback["class_date"])
+        df_feedback_sorted = df_feedback.sort_values("class_date")
+
+        # Create stacked bar chart
+        theme = get_chart_theme()
+        fig = go.Figure()
+
+        fig.add_trace(
+            go.Bar(
+                x=df_feedback_sorted["class_date"],
+                y=df_feedback_sorted["thumbs_up_count"],
+                name="Thumbs Up",
+                marker_color=theme["colors"][2],  # Green
+            )
+        )
+
+        fig.add_trace(
+            go.Bar(
+                x=df_feedback_sorted["class_date"],
+                y=df_feedback_sorted["thumbs_down_count"],
+                name="Thumbs Down",
+                marker_color=theme["colors"][0],  # Red
+            )
+        )
+
+        fig.update_layout(
+            barmode="stack",
+            title="Feedback by Date",
+            xaxis_title="Date",
+            yaxis_title="Feedback Count",
+            template=theme["template"],
+            paper_bgcolor=theme["paper_bgcolor"],
+            plot_bgcolor=theme["plot_bgcolor"],
+            font_color=theme["font_color"],
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.divider()
+
+        # --- FEEDBACK BY CLASS ---
+        st.subheader("📊 Feedback by Class")
+
+        # Group by class name
+        class_feedback = (
+            df_feedback.groupby("class_name")
+            .agg(
+                {
+                    "thumbs_up_count": "sum",
+                    "thumbs_down_count": "sum",
+                    "total_feedback": "sum",
+                    "feedback_rate": "mean",
+                }
+            )
+            .reset_index()
+        )
+
+        # Create grouped bar chart
+        fig2 = go.Figure()
+
+        fig2.add_trace(
+            go.Bar(
+                x=class_feedback["class_name"],
+                y=class_feedback["thumbs_up_count"],
+                name="Thumbs Up",
+                marker_color=theme["colors"][2],
+            )
+        )
+
+        fig2.add_trace(
+            go.Bar(
+                x=class_feedback["class_name"],
+                y=class_feedback["thumbs_down_count"],
+                name="Thumbs Down",
+                marker_color=theme["colors"][0],
+            )
+        )
+
+        fig2.update_layout(
+            barmode="group",
+            title="Feedback Summary by Class",
+            xaxis_title="Class",
+            yaxis_title="Feedback Count",
+            template=theme["template"],
+            paper_bgcolor=theme["paper_bgcolor"],
+            plot_bgcolor=theme["plot_bgcolor"],
+            font_color=theme["font_color"],
+        )
+
+        st.plotly_chart(fig2, use_container_width=True)
+
+        st.divider()
+
+        # --- DETAILED FEEDBACK TABLE ---
+        st.subheader("📋 Detailed Feedback Report")
+
+        # Prepare table
+        table_df = df_feedback.copy()
+        table_df["class_date"] = table_df["class_date"].dt.strftime("%Y-%m-%d")
+        table_df["positive_rate"] = (
+            table_df["thumbs_up_count"] / table_df["total_feedback"] * 100
+        ).round(1)
+
+        display_table = table_df[
+            [
+                "class_date",
+                "class_name",
+                "teacher_name",
+                "thumbs_up_count",
+                "thumbs_down_count",
+                "total_feedback",
+                "total_attendees",
+                "feedback_rate",
+                "positive_rate",
+            ]
+        ]
+
+        display_table.columns = [
+            "Date",
+            "Class",
+            "Teacher",
+            "👍",
+            "👎",
+            "Total Feedback",
+            "Total Students",
+            "Response Rate %",
+            "Positive %",
+        ]
+
+        st.dataframe(display_table, use_container_width=True, hide_index=True)

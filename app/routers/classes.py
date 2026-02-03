@@ -43,7 +43,7 @@ def update_class_schedule(
     class_name: str = Form(...),
     day: str = Form(...),
     time: str = Form(...),
-    weighting: float = Form(...),
+    points: float = Form(...),
     description: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -70,7 +70,7 @@ def update_class_schedule(
         class_name=class_name,
         day=day,
         time=time,
-        weighting=weighting,
+        points=points,
         description=description,
         is_current=True,
         effective_date=now,

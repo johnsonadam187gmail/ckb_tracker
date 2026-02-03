@@ -111,7 +111,7 @@ def get_attendance_by_user(user_uuid: str, db: Session = Depends(get_db)):
                 "attendance_date": r.attendance_date,
                 "user_uuid": r.user_uuid,
                 "class_name": r.class_info.class_name,
-                "weighting": r.class_info.weighting,
+                "points": r.class_info.points,
                 "rank_at_time": r.user.rank,
                 "teacher_uuid": r.teacher_uuid,
                 "teacher_name": f"{r.teacher.first_name} {r.teacher.last_name}"
@@ -160,7 +160,7 @@ def get_class_attendance_detail(
             "user_uuid": r.user_uuid,
             "userfullname": f"{r.user.first_name} {r.user.last_name}",
             "rank_at_time": r.user.rank,
-            "weighting": r.class_info.weighting,
+            "points": r.class_info.points,
             "teacher_uuid": r.teacher_uuid,
             "teacher_name": f"{r.teacher.first_name} {r.teacher.last_name}"
             if r.teacher
@@ -191,7 +191,7 @@ def get_teacher_class_summary(
             models.FactAttendance.attendance_date.label("class_date"),
             models.ClassSchedule.class_name,
             func.count(models.FactAttendance.user_uuid).label("student_count"),
-            func.sum(models.ClassSchedule.weighting).label("total_weighting"),
+            func.sum(models.ClassSchedule.points).label("total_points"),
         )
         .join(
             models.ClassInstance,

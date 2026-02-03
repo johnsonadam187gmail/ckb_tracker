@@ -261,7 +261,7 @@ def test_attendance_with_teacher(test_db):
         class_name="Test Class",
         day="Monday",
         time="18:00",
-        weighting=1.0,
+        points=1.0,
         gym_id=gym.id,
         class_type_id=class_type.id,
         is_current=True,
