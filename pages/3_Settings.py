@@ -149,6 +149,7 @@ if check_password():
         tab_targets,
         tab_lessons,
         tab_passwords,
+        tab_feedback,
     ) = st.tabs(
         [
             "🥋 User Admin",
@@ -158,6 +159,7 @@ if check_password():
             "🎯 Targets",
             "📚 Lessons",
             "🔐 Student Passwords",
+            "📊 Feedback Analytics",
         ]
     )
 
@@ -1297,6 +1299,327 @@ if check_password():
                 - At least one special character (!@#$%^&*(),.?\":{}|<>)
                 """
             )
+
+    # --- 8. FEEDBACK ANALYTICS ---
+    with tab_feedback:
+        st.header("📊 Comprehensive Feedback Analytics")
+        st.markdown(
+            "Admin view of all student feedback across all classes and teachers"
+        )
+
+        # Fetch all feedback
+        try:
+            feedback_res = requests.get(
+                f"{BASE_URL}/feedback/admin/comprehensive-stats"
+            )
+
+            if feedback_res.status_code == 200:
+                all_feedback = feedback_res.json()
+
+                if not all_feedback:
+                    st.info("📭 No feedback has been submitted yet")
+                else:
+                    # Convert to DataFrame
+                    df_feedback = pd.DataFrame(all_feedback)
+
+                    # --- METRICS ROW ---
+                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+
+                    with col_m1:
+                        st.metric("Total Feedback", len(df_feedback))
+
+                    with col_m2:
+                        positive_count = len(
+                            df_feedback[df_feedback["rating"] == "thumbs_up"]
+                        )
+                        total = len(df_feedback)
+                        positive_pct = (
+                            (positive_count / total * 100) if total > 0 else 0
+                        )
+                        st.metric("👍 Positive", f"{positive_pct:.1f}%")
+
+                    with col_m3:
+                        # Most active student by feedback count
+                        student_counts = df_feedback["student_name"].value_counts()
+                        most_active = (
+                            student_counts.index[0]
+                            if len(student_counts) > 0
+                            else "N/A"
+                        )
+                        st.metric("Most Active", most_active)
+
+                    with col_m4:
+                        # Average rating (1 = positive, 0 = negative)
+                        ratings = df_feedback["rating"].apply(
+                            lambda x: 1 if x == "thumbs_up" else 0
+                        )
+                        avg_rating = ratings.mean() * 100 if len(ratings) > 0 else 0
+                        st.metric("Avg Rating", f"{avg_rating:.1f}%")
+
+                    st.divider()
+
+                    # --- FILTERS ---
+                    with st.expander("🔍 Filters", expanded=False):
+                        filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(
+                            4
+                        )
+
+                        with filter_col1:
+                            # Date range
+                            df_feedback["class_date"] = pd.to_datetime(
+                                df_feedback["class_date"]
+                            )
+                            min_date = df_feedback["class_date"].min().date()
+                            max_date = df_feedback["class_date"].max().date()
+
+                            date_filter = st.date_input(
+                                "Date Range",
+                                value=(min_date, max_date),
+                                min_value=min_date,
+                                max_value=max_date,
+                                key="feedback_date_filter",
+                            )
+
+                        with filter_col2:
+                            # Class filter
+                            all_classes = sorted(df_feedback["class_name"].unique())
+                            class_filter = st.multiselect(
+                                "Classes",
+                                options=all_classes,
+                                default=all_classes,
+                                key="feedback_class_filter",
+                            )
+
+                        with filter_col3:
+                            # Teacher filter
+                            all_teachers = sorted(
+                                df_feedback["teacher_name"].dropna().unique()
+                            )
+                            teacher_filter = st.multiselect(
+                                "Teachers",
+                                options=["(Unassigned)"] + list(all_teachers),
+                                default=["(Unassigned)"] + list(all_teachers),
+                                key="feedback_teacher_filter",
+                            )
+
+                        with filter_col4:
+                            # Rating filter
+                            rating_filter = st.selectbox(
+                                "Rating",
+                                options=["All", "👍 Positive", "👎 Negative"],
+                                key="feedback_rating_filter",
+                            )
+
+                    # Apply filters
+                    df_filtered = df_feedback.copy()
+
+                    if date_filter and len(date_filter) == 2:
+                        df_filtered = df_filtered[
+                            (df_filtered["class_date"].dt.date >= date_filter[0])
+                            & (df_filtered["class_date"].dt.date <= date_filter[1])
+                        ]
+
+                    if class_filter:
+                        df_filtered = df_filtered[
+                            df_filtered["class_name"].isin(class_filter)
+                        ]
+
+                    if teacher_filter:
+                        if "(Unassigned)" in teacher_filter:
+                            df_filtered = df_filtered[
+                                (df_filtered["teacher_name"].isin(teacher_filter))
+                                | (df_filtered["teacher_name"].isna())
+                            ]
+                        else:
+                            df_filtered = df_filtered[
+                                df_filtered["teacher_name"].isin(teacher_filter)
+                            ]
+
+                    if rating_filter == "👍 Positive":
+                        df_filtered = df_filtered[df_filtered["rating"] == "thumbs_up"]
+                    elif rating_filter == "👎 Negative":
+                        df_filtered = df_filtered[
+                            df_filtered["rating"] == "thumbs_down"
+                        ]
+
+                    # --- DATA TABLE ---
+                    st.subheader("📋 Feedback Details")
+
+                    # Format display
+                    df_display = df_filtered.copy()
+                    df_display["Date"] = df_display["class_date"].dt.strftime(
+                        "%Y-%m-%d"
+                    )
+                    df_display["Class"] = df_display["class_name"]
+                    df_display["Student"] = df_display["student_name"]
+                    df_display["Teacher"] = df_display["teacher_name"].fillna(
+                        "Unassigned"
+                    )
+                    df_display["Rating"] = df_display["rating"].apply(
+                        lambda x: "👍 Positive"
+                        if x == "thumbs_up"
+                        else "👎 Negative"
+                        if x == "thumbs_down"
+                        else "N/A"
+                    )
+                    df_display["Comment"] = df_display["comment"].fillna("No comment")
+
+                    df_display = df_display[
+                        ["Date", "Class", "Student", "Teacher", "Rating", "Comment"]
+                    ]
+
+                    st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+                    st.divider()
+
+                    # --- VISUALIZATIONS ---
+                    st.subheader("📈 Charts")
+
+                    import plotly.express as px
+
+                    # Get theme
+                    theme = st.session_state.get("theme", "dark")
+                    if theme == "dark":
+                        template = "plotly_dark"
+                        colors = [
+                            "#4CAF50",
+                            "#F44336",
+                        ]  # Green for positive, red for negative
+                    else:
+                        template = "plotly_white"
+                        colors = ["#388E3C", "#D32F2F"]
+
+                    chart_col1, chart_col2 = st.columns(2)
+
+                    with chart_col1:
+                        # Feedback over time
+                        st.markdown("**Feedback Over Time**")
+
+                        feedback_by_date = (
+                            df_filtered.groupby(
+                                [df_filtered["class_date"].dt.date, "rating"]
+                            )
+                            .size()
+                            .reset_index(name="count")
+                        )
+                        feedback_by_date["rating_label"] = feedback_by_date[
+                            "rating"
+                        ].apply(
+                            lambda x: "Positive" if x == "thumbs_up" else "Negative"
+                        )
+
+                        fig1 = px.line(
+                            feedback_by_date,
+                            x="class_date",
+                            y="count",
+                            color="rating_label",
+                            title="",
+                            labels={
+                                "class_date": "Date",
+                                "count": "Count",
+                                "rating_label": "Rating",
+                            },
+                            template=template,
+                            color_discrete_sequence=colors,
+                        )
+                        st.plotly_chart(fig1, use_container_width=True)
+
+                    with chart_col2:
+                        # Feedback by class
+                        st.markdown("**Feedback by Class**")
+
+                        feedback_by_class = (
+                            df_filtered["class_name"].value_counts().reset_index()
+                        )
+                        feedback_by_class.columns = ["class_name", "count"]
+
+                        fig2 = px.bar(
+                            feedback_by_class,
+                            x="class_name",
+                            y="count",
+                            title="",
+                            labels={"class_name": "Class", "count": "Feedback Count"},
+                            template=template,
+                            color_discrete_sequence=["#c91a2b"],  # CKB Red
+                        )
+                        fig2.update_xaxes(tickangle=45)
+                        st.plotly_chart(fig2, use_container_width=True)
+
+                    # Second row of charts
+                    chart_col3, chart_col4 = st.columns(2)
+
+                    with chart_col3:
+                        # Feedback by teacher
+                        st.markdown("**Feedback by Teacher**")
+
+                        feedback_by_teacher = (
+                            df_filtered["teacher_name"]
+                            .fillna("Unassigned")
+                            .value_counts()
+                            .reset_index()
+                        )
+                        feedback_by_teacher.columns = ["teacher_name", "count"]
+
+                        fig3 = px.bar(
+                            feedback_by_teacher,
+                            x="teacher_name",
+                            y="count",
+                            title="",
+                            labels={
+                                "teacher_name": "Teacher",
+                                "count": "Feedback Count",
+                            },
+                            template=template,
+                            color_discrete_sequence=["#2196F3"],  # Blue
+                        )
+                        fig3.update_xaxes(tickangle=45)
+                        st.plotly_chart(fig3, use_container_width=True)
+
+                    with chart_col4:
+                        # Rating distribution
+                        st.markdown("**Rating Distribution**")
+
+                        rating_dist = df_filtered["rating"].value_counts().reset_index()
+                        rating_dist.columns = ["rating", "count"]
+                        rating_dist["rating_label"] = rating_dist["rating"].apply(
+                            lambda x: "👍 Positive"
+                            if x == "thumbs_up"
+                            else "👎 Negative"
+                        )
+
+                        fig4 = px.pie(
+                            rating_dist,
+                            values="count",
+                            names="rating_label",
+                            title="",
+                            template=template,
+                            color_discrete_sequence=colors,
+                        )
+                        st.plotly_chart(fig4, use_container_width=True)
+
+                    st.divider()
+
+                    # --- CSV EXPORT ---
+                    st.subheader("📥 Export Data")
+
+                    # Prepare CSV
+                    csv_data = df_display.to_csv(index=False)
+
+                    st.download_button(
+                        label="📥 Download Feedback CSV",
+                        data=csv_data,
+                        file_name=f"feedback_analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+
+            else:
+                st.error(
+                    f"Failed to fetch feedback: {feedback_res.json().get('detail', 'Unknown error')}"
+                )
+
+        except Exception as e:
+            st.error(f"Error loading feedback analytics: {str(e)}")
 
 else:
     st.stop()  # Prevents the rest of the page from running

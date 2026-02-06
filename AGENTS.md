@@ -1002,6 +1002,488 @@ DELETE /lessons/{id}                   # Delete lesson
 - `User.user_uuid`: Unique identifier for user identity
 - `ClassSchedule.class_uuid`: Unique identifier for class identity
 
+## Teacher Authentication & Feedback Analytics Feature
+
+**Overview:** The application implements role-based authentication for teachers with JWT tokens and comprehensive feedback analytics for administrators. This feature ensures secure teacher access and provides privacy-conscious feedback management.
+
+### Key Features
+
+1. **Password-Protected User Creation**
+   - All users must have passwords (minimum 6 characters)
+   - Passwords hashed with Argon2 (via passlib)
+   - Frontend and backend validation
+   - Created users automatically assigned "Student" role
+
+2. **Teacher Dashboard Authentication**
+   - JWT-based session management
+   - 5-minute token expiry with rolling window extension
+   - Automatic logout on inactivity
+   - Only users with "Teacher" role can access
+
+3. **Feedback Privacy Controls**
+   - **Teachers:** See anonymous feedback ("Student" only, no names)
+   - **Admins:** See all feedback with full student names
+   - Privacy enforced at API level
+
+4. **Comprehensive Admin Analytics**
+   - View all feedback across all classes and teachers
+   - Interactive filters (date range, class, teacher, rating)
+   - 4 visualization charts (Plotly)
+   - CSV export functionality
+
+### Authentication Architecture
+
+**JWT Token Management:**
+
+```python
+# app/auth.py
+- create_teacher_token(data, expires_delta) → JWT with 5-min expiry
+- verify_teacher_token(token) → Validates and decodes JWT
+- extend_teacher_token(token) → Rolling expiry on activity
+```
+
+**Session Flow:**
+
+```
+1. Teacher Login (pages/4_Teacher.py)
+   ↓
+2. POST /auth/teacher-login
+   - Validates email/password
+   - Checks Teacher role in UserRole table
+   - Returns JWT token + user info
+   ↓
+3. Session Storage
+   - st.session_state.teacher_token
+   - st.session_state.teacher_info
+   ↓
+4. Activity Monitoring
+   - Every page interaction: POST /auth/verify-session
+   - If valid: Extend token by 5 minutes
+   - If expired: Redirect to login
+   ↓
+5. Logout
+   - Clear session state
+   - Redirect to login form
+```
+
+### Database Changes
+
+**User Model Update:**
+```python
+class User(Base):
+    password_hash = Column(String(255), nullable=True)  # Argon2 hash
+    # Note: nullable=True for backward compatibility
+    # All new users require passwords
+```
+
+**No new tables added** - Uses existing User, UserRole, ClassFeedback models.
+
+### API Endpoints
+
+**Authentication:**
+```
+POST   /auth/login                  # Student login with email/password
+POST   /auth/teacher-login          # Teacher login with email/password, return JWT
+POST   /auth/verify-session         # Verify token, extend expiry
+```
+
+**Password Management:**
+```
+POST   /auth/set-password           # Set or update user password (admin)
+GET    /auth/check-password/{uuid}  # Check if user has password set
+DELETE /auth/remove-password/{uuid} # Remove user password (admin)
+```
+
+**Feedback:**
+```
+POST   /feedback/                                   # Create feedback (student)
+GET    /feedback/user/{uuid}                        # Get user's feedback (student)
+GET    /feedback/teacher/{uuid}                     # Teacher's feedback (anonymous)
+GET    /feedback/admin/comprehensive-stats          # All feedback (admin view)
+```
+
+**Request/Response Examples:**
+
+```python
+# Student Login
+POST /auth/login
+Body: {
+  "email": "student@ckb.com",
+  "password": "student123"
+}
+Response: {
+  "id": 1,
+  "user_uuid": "...",
+  "first_name": "Mike",
+  "last_name": "Student",
+  "email": "student@ckb.com",
+  "rank": "Blue Belt",
+  "profile_image_url": null,
+  "is_current": true,
+  ...
+}
+
+# Teacher Login
+POST /auth/teacher-login
+Body: username=teacher@ckb.com&password=teacher123 (form data)
+Response: {
+  "access_token": "eyJ...",
+  "token_type": "bearer",
+  "user_info": {
+    "user_uuid": "...",
+    "first_name": "John",
+    "last_name": "Instructor",
+    ...
+  }
+}
+
+# Session Verification
+POST /auth/verify-session
+Body: {"token": "eyJ..."}
+Response: {
+  "status": "ok",
+  "new_token": "eyJ...",
+  "user_uuid": "..."
+}
+
+# Set/Update Password
+POST /auth/set-password
+Body: {
+  "user_uuid": "user-uuid-here",
+  "password": "newpassword123"
+}
+Response: {
+  "message": "Password set successfully",
+  "user_uuid": "user-uuid-here"
+}
+
+# Check Password Status
+GET /auth/check-password/{user_uuid}
+Response: {
+  "user_uuid": "user-uuid-here",
+  "has_password": true
+}
+
+# Remove Password
+DELETE /auth/remove-password/{user_uuid}
+Response: {
+  "message": "Password removed successfully",
+  "user_uuid": "user-uuid-here"
+}
+
+# Create Feedback (Student)
+POST /feedback/
+Body: {
+  "attendance_id": 123,
+  "rating": "thumbs_up",
+  "comment": "Great class, learned a lot!"
+}
+Response: {
+  "id": 1,
+  "user_uuid": "user-uuid",
+  "attendance_id": 123,
+  "class_instance_id": 45,
+  "rating": "thumbs_up",
+  "comment": "Great class, learned a lot!",
+  "created_at": "2026-02-06T10:30:00",
+  "class_date": "2026-02-06",
+  "class_name": "Fundamentals 1",
+  "lesson_title": "Guard Passing"
+}
+
+# Get User's Feedback (Student)
+GET /feedback/user/{user_uuid}
+Response: [
+  {
+    "id": 1,
+    "attendance_id": 123,
+    "rating": "thumbs_up",
+    "comment": "Great class!",
+    "class_date": "2026-02-06",
+    "class_name": "Fundamentals 1",
+    "lesson_title": "Guard Passing"
+  }
+]
+
+# Teacher Feedback (Anonymous)
+GET /feedback/teacher/{teacher_uuid}
+Response: [
+  {
+    "id": 1,
+    "rating": "thumbs_up",
+    "comment": "Great class!",
+    "class_date": "2026-02-06",
+    "class_name": "Fundamentals 1",
+    "lesson_title": "Guard Passing",
+    "user_full_name": null,  # Anonymous
+    "teacher_name": null
+  }
+]
+
+# Admin Feedback (Full Names)
+GET /feedback/admin/comprehensive-stats
+Response: [
+  {
+    "rating": "thumbs_up",
+    "comment": "Great class!",
+    "class_date": "2026-02-06",
+    "class_name": "Fundamentals 1",
+    "student_name": "Mike Student",  # Full name visible
+    "teacher_name": "John Instructor"
+  }
+]
+```
+
+### Frontend Pages Modified
+
+**1. Attendance.py (Main Page)**
+- **Changes:** Added password fields to user creation form
+- **Location:** Sidebar "Add New Member" form
+- **Fields Added:**
+  - Password (type="password", min 6 chars)
+  - Confirm Password (validation)
+- **Validation:** Frontend checks password match, minimum length
+- **API Call:** Includes password in POST /users/ request
+
+**2. pages/4_Teacher.py (Teacher Dashboard) - COMPLETE REWRITE**
+
+**Authentication Gate:**
+```python
+# Shows login form if not authenticated
+if "teacher_token" not in st.session_state or not verify_session():
+    # Login form with email/password
+    # Calls teacher_login(email, password)
+    st.stop()
+```
+
+**Tab 1: Class Roster**
+- Select class and date
+- Assign teacher (pre-selects logged-in teacher)
+- View student roster for selected class
+- **Existing functionality preserved**
+
+**Tab 2: Feedback (NEW)**
+- Fetch feedback via GET /feedback/teacher/{uuid}
+- Display: Date | Class | Lesson | Rating | Comment
+- **Student names anonymous** - Shows no names
+- Filters: Date range, Class, Rating
+- Metrics: Total, Positive, Negative counts
+
+**Sidebar:**
+- Shows logged-in teacher name
+- Logout button
+
+**3. pages/3_Settings.py (Admin Settings)**
+- **Changes:** Added new "📊 Feedback Analytics" tab
+- **Access:** Admin-only (existing password protection)
+
+**New Tab Structure:**
+```python
+st.tabs([
+    "🥋 User Admin",
+    "📅 Class Schedule",
+    "🏢 Gyms & Types",
+    "🗓️ Terms",
+    "🎯 Targets",
+    "📚 Lessons",
+    "🔐 Student Passwords",
+    "📊 Feedback Analytics"  # NEW
+])
+```
+
+**Feedback Analytics Tab Components:**
+
+1. **Metrics Row** (4 columns):
+   - Total Feedback (count)
+   - Positive % (thumbs_up percentage)
+   - Most Active Student (by feedback count)
+   - Avg Rating (percentage)
+
+2. **Filters** (expandable):
+   - Date Range (from/to date pickers)
+   - Classes (multi-select)
+   - Teachers (multi-select, includes "Unassigned")
+   - Rating (All/Positive/Negative)
+
+3. **Data Table**:
+   - Columns: Date | Class | Student | Teacher | Rating | Comment
+   - **Full student names visible** (admin view)
+   - Sortable, filterable
+
+4. **Charts** (4 visualizations):
+   - Feedback Over Time (line chart, grouped by rating)
+   - Feedback by Class (bar chart)
+   - Feedback by Teacher (bar chart)
+   - Rating Distribution (pie chart)
+   - Theme-aware (uses plotly_dark/plotly_white)
+
+5. **CSV Export**:
+   - Downloads filtered data
+   - Filename: `feedback_analytics_YYYYMMDD_HHMMSS.csv`
+
+### Security Considerations
+
+**Password Storage:**
+- Hashed with Argon2 (passlib default)
+- Never stored in plain text
+- Backend validates password on user creation
+
+**JWT Tokens:**
+- Secret key auto-generated: `secrets.token_urlsafe(32)`
+- Stored in `.env` file (gitignored)
+- HS256 algorithm
+- 5-minute expiry with rolling extension
+
+**Session Management:**
+- Tokens stored in Streamlit session_state (server-side)
+- Not exposed to client
+- Auto-cleared on logout
+- Expired tokens rejected by backend
+
+**Role Verification:**
+- Teacher role checked at login
+- 403 Forbidden if user lacks Teacher role
+- Prevents students from accessing Teacher Dashboard
+
+**Feedback Privacy:**
+- API-level enforcement
+- Teacher endpoint filters by teacher_uuid
+- Admin endpoint requires Settings page authentication
+- No student names returned to teacher endpoint
+
+### Testing & Verification
+
+**Manual Testing Guide:** See `TESTING.md` for comprehensive checklist
+
+**Key Test Scenarios:**
+1. User creation with password validation
+2. Teacher login/logout flow
+3. Session timeout after 5 minutes
+4. Feedback privacy (teacher vs admin views)
+5. Filter functionality in analytics
+6. CSV export with various filters
+7. Chart rendering in both themes
+
+**Seed Data:**
+Run `python seed_users.py` to create test accounts:
+- Admin: admin@ckb.com / admin123
+- Teacher: teacher@ckb.com / teacher123
+- Student: student@ckb.com / student123
+
+### Configuration
+
+**Environment Variables:**
+```bash
+# .env file (auto-generated if not exists)
+SECRET_KEY=<auto-generated-32-byte-key>
+```
+
+**Dependencies Added:**
+```toml
+python-jose[cryptography]  # JWT token management
+```
+
+### Migration Notes
+
+**Existing Users Without Passwords:**
+- After feature deployment, existing users have `password_hash = NULL`
+- Options:
+  1. Admin sets passwords via Settings → Student Passwords tab
+  2. Users request password reset (if implemented)
+  3. Run database migration to set default passwords
+
+**Database Reset:**
+- Feature requires fresh database with passwords
+- Run `python reset_db.py` followed by `python seed_users.py`
+- Existing data will be lost
+
+### Error Handling
+
+**Common Errors:**
+
+1. **401 Unauthorized:**
+   - Invalid or expired token
+   - Incorrect email/password
+   - **User Action:** Re-login
+
+2. **403 Forbidden:**
+   - User lacks Teacher role
+   - **User Action:** Admin must assign Teacher role
+
+3. **Connection Failed:**
+   - Backend server not running
+   - **Admin Action:** Start uvicorn server
+
+4. **ModuleNotFoundError: 'jose':**
+   - Missing dependency
+   - **Admin Action:** `pip install python-jose[cryptography]`
+
+### Performance Considerations
+
+**JWT Token Verification:**
+- Every page interaction calls /auth/verify-session
+- Adds ~10-50ms overhead per request
+- Acceptable for small-medium deployments
+
+**Feedback Analytics:**
+- Fetches all feedback records on tab load
+- Filtering done client-side (pandas)
+- May slow down with 10,000+ feedback records
+- **Future Optimization:** Server-side pagination
+
+**Chart Rendering:**
+- Plotly charts load on-demand (tab activation)
+- 4 charts may cause lag on slower machines
+- **Future Optimization:** Lazy loading or caching
+
+### Future Enhancements
+
+**Potential Improvements:**
+1. Password reset functionality
+2. "Remember Me" option for longer sessions
+3. Multi-factor authentication (MFA)
+4. Role-based permissions (RBAC)
+5. Feedback notifications for teachers
+6. Email alerts on negative feedback
+7. Feedback analytics by date range comparison
+
+### Development Checklist
+
+When modifying this feature:
+- [ ] Update JWT secret rotation mechanism
+- [ ] Add rate limiting to prevent brute force
+- [ ] Implement session blacklist for logout
+- [ ] Add audit logging for authentication events
+- [ ] Write automated tests for auth flow
+- [ ] Document API with OpenAPI schema
+
+### Files Modified
+
+**Backend (6 files):**
+- `app/auth.py` - JWT token management functions
+- `app/routers/auth.py` - Teacher login and session endpoints
+- `app/routers/feedback.py` - Teacher and admin feedback endpoints
+- `app/schemas.py` - Added 4 new schemas (TeacherLoginResponse, etc.)
+- `app/main.py` - Included auth and feedback routers
+- `app/routers/users.py` - Made password required
+
+**Frontend (3 files):**
+- `Attendance.py` - Added password fields to user form
+- `pages/4_Teacher.py` - Complete rewrite with authentication
+- `pages/3_Settings.py` - Added Feedback Analytics tab
+
+**Utilities:**
+- `seed_users.py` - Script to create test accounts with passwords
+- `TESTING.md` - Comprehensive testing guide
+
+### Related Documentation
+
+- **TESTING.md:** Step-by-step manual testing guide
+- **safety.md:** Implementation tracking and progress
+- **API Docs:** http://127.0.0.1:8000/docs (when server running)
+
+---
+
 ## Common Pitfalls
 
 1. **Forgetting is_current filter** - Always filter SCD Type 2 tables by `is_current=True`

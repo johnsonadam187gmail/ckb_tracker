@@ -402,6 +402,7 @@ class FeedbackResponse(BaseModel):
     user_full_name: Optional[str] = None
     class_name: Optional[str] = None
     class_date: Optional[date] = None
+    lesson_title: Optional[str] = None
     teacher_name: Optional[str] = None
 
     class Config:
@@ -441,6 +442,50 @@ class SetPasswordRequest(BaseModel):
 
     user_uuid: str
     password: str
+
+    class Config:
+        from_attributes = True
+
+
+# ===== Teacher Authentication Schemas =====
+class TeacherLoginResponse(BaseModel):
+    """Response schema for teacher login with JWT token."""
+
+    access_token: str
+    token_type: str
+    user_info: "UserResponse"
+
+    class Config:
+        from_attributes = True
+
+
+class SessionVerifyRequest(BaseModel):
+    """Request schema for session verification."""
+
+    token: str
+
+
+class SessionVerifyResponse(BaseModel):
+    """Response schema for session verification with new token."""
+
+    status: str
+    new_token: str
+    user_uuid: str
+
+    class Config:
+        from_attributes = True
+
+
+# ===== Admin Feedback Analytics Schema =====
+class ComprehensiveFeedbackStats(BaseModel):
+    """Schema for comprehensive feedback with all details (admin view)."""
+
+    rating: Optional[str]
+    comment: Optional[str]
+    class_date: date
+    class_name: str
+    student_name: str
+    teacher_name: Optional[str]
 
     class Config:
         from_attributes = True

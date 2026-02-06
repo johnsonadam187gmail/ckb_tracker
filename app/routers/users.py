@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..database import get_db
 from ..config import settings
+from ..auth import get_password_hash
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -23,6 +24,7 @@ def create_user(
     first_name: str = Form(...),
     last_name: str = Form(...),
     email: str = Form(...),
+    password: str = Form(...),
     rank: Optional[str] = Form(None),
     comments: Optional[str] = Form(None),
     nicknames: Optional[str] = Form(None),
@@ -30,7 +32,7 @@ def create_user(
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
-    """Create a new user with SCD Type 2 versioning."""
+    """Create a new user with SCD Type 2 versioning. Password is required."""
     # 1. Check if user already exists
     db_user = (
         db.query(models.User)
@@ -58,12 +60,16 @@ def create_user(
                 status_code=400, detail=f"Invalid date format: {str(e)}"
             )
 
+    # Hash the password
+    hashed_password = get_password_hash(password)
+
     # 3. Create the Database Record
     new_user = models.User(
         user_uuid=str(uuid.uuid4()),
         first_name=first_name,
         last_name=last_name,
         email=email,
+        password_hash=hashed_password,
         rank=rank,
         comments=comments,
         nicknames=nicknames,

@@ -49,102 +49,211 @@ if "theme" not in st.session_state:
 # Load CSS
 load_css()
 
-st.title("👨‍🏫 Teacher Dashboard")
 
-# --- CLASS AND DATE SELECTION ---
-st.header("Class Roster")
+# --- AUTHENTICATION FUNCTIONS ---
+def verify_session():
+    """Verify teacher session token is still valid."""
+    if "teacher_token" not in st.session_state:
+        return False
 
-col1, col2, col3, col4 = st.columns([1, 2, 2, 1.5])
+    try:
+        response = requests.post(
+            f"{BASE_URL}/auth/verify-session",
+            json={"token": st.session_state.teacher_token},
+            timeout=5,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            # Update token with extended one
+            st.session_state.teacher_token = data["new_token"]
+            return True
+        else:
+            return False
+    except Exception:
+        return False
 
-with col1:
-    selected_date = st.date_input("Class Date", value=datetime.now())
 
-with col2:
-    # Fetch all classes
-    class_res = requests.get(f"{BASE_URL}/classes/")
-    classes = class_res.json() if class_res.status_code == 200 else []
-
-    # Store full class data for easy access
-    class_data = {}
-    for c in classes:
-        display_key = f"{c['class_name']} ({c['time']})"
-        class_data[display_key] = {
-            "id": c["id"],
-            "name": c["class_name"],
-            "time": c["time"],
-        }
-
-    selected_class_name = st.selectbox(
-        "Select Class", options=["-- Select Class --"] + list(class_data.keys())
-    )
-
-with col3:
-    # Fetch users with Teacher role
-    teachers_res = requests.get(f"{BASE_URL}/roles/users/by-role/Teacher")
-    teachers = teachers_res.json() if teachers_res.status_code == 200 else []
-
-    # Teacher selection dropdown
-    teacher_options = {"-- No Teacher Assigned --": None}
-    if teachers:
-        teacher_options.update(
-            {f"{t['first_name']} {t['last_name']}": t["user_uuid"] for t in teachers}
+def teacher_login(email: str, password: str):
+    """Authenticate teacher and store session."""
+    try:
+        response = requests.post(
+            f"{BASE_URL}/auth/teacher-login",
+            data={
+                "username": email,
+                "password": password,
+            },  # OAuth2PasswordRequestForm format
+            timeout=5,
         )
 
-    # Store for later use (will be set after we fetch ClassInstance)
-    default_teacher_index = 0
+        if response.status_code == 200:
+            data = response.json()
+            st.session_state.teacher_token = data["access_token"]
+            st.session_state.teacher_info = data["user_info"]
+            return True, None
+        else:
+            error_detail = response.json().get("detail", "Login failed")
+            return False, error_detail
+    except Exception as e:
+        return False, f"Connection error: {str(e)}"
 
-    selected_teacher_name = st.selectbox(
-        "Assign Teacher",
-        options=list(teacher_options.keys()),
-        index=default_teacher_index,
-        help="Select the teacher who taught this class",
-        key=f"teacher_select_{selected_date}_{selected_class_name}",
-    )
 
-    selected_teacher_uuid = teacher_options[selected_teacher_name]
+def logout():
+    """Clear teacher session."""
+    if "teacher_token" in st.session_state:
+        del st.session_state.teacher_token
+    if "teacher_info" in st.session_state:
+        del st.session_state.teacher_info
+    st.rerun()
 
-with col4:
-    # Spacer to align button with dropdowns
-    st.write("")
 
-    # Teacher Assignment Button
-    if selected_class_name != "-- Select Class --":
-        if (
-            selected_teacher_uuid
-            and selected_teacher_name != "-- No Teacher Assigned --"
+# --- AUTHENTICATION GATE ---
+if "teacher_token" not in st.session_state or not verify_session():
+    # Show login form
+    st.title("👨‍🏫 Teacher Dashboard - Login")
+    st.markdown("Please sign in with your teacher account to access the dashboard.")
+
+    with st.form("teacher_login_form"):
+        email = st.text_input("Email", placeholder="your.email@example.com")
+        password = st.text_input("Password", type="password")
+        submit = st.form_submit_button("🔐 Login", use_container_width=True)
+
+        if submit:
+            if not email or not password:
+                st.error("❌ Please enter both email and password")
+            else:
+                with st.spinner("Authenticating..."):
+                    success, error = teacher_login(email, password)
+                    if success:
+                        st.success("✅ Login successful!")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {error}")
+
+    st.stop()  # Don't render rest of page
+
+
+# --- AUTHENTICATED VIEW ---
+st.title("👨‍🏫 Teacher Dashboard")
+
+# Sidebar with logout button
+with st.sidebar:
+    teacher_name = f"{st.session_state.teacher_info['first_name']} {st.session_state.teacher_info['last_name']}"
+    st.write(f"**Logged in as:** {teacher_name}")
+    if st.button("🚪 Logout", use_container_width=True):
+        logout()
+
+
+# --- TABS ---
+tab1, tab2 = st.tabs(["📋 Class Roster", "💬 Feedback"])
+
+# --- TAB 1: CLASS ROSTER (existing functionality) ---
+with tab1:
+    st.header("Class Roster & Assignment")
+
+    col1, col2, col3, col4 = st.columns([1, 2, 2, 1.5])
+
+    with col1:
+        selected_date = st.date_input("Class Date", value=datetime.now())
+
+    with col2:
+        # Fetch all classes
+        try:
+            class_res = requests.get(f"{BASE_URL}/classes/")
+            classes = class_res.json() if class_res.status_code == 200 else []
+        except:
+            classes = []
+            st.error("⚠️ Could not fetch classes from server")
+
+        class_data = {}
+        for c in classes:
+            display_key = f"{c['class_name']} ({c['time']})"
+            class_data[display_key] = {
+                "id": c["id"],
+                "name": c["class_name"],
+                "time": c["time"],
+            }
+
+        selected_class_name = st.selectbox(
+            "Select Class", options=["-- Select Class --"] + list(class_data.keys())
+        )
+
+    with col3:
+        # Fetch users with Teacher role
+        try:
+            teachers_res = requests.get(f"{BASE_URL}/roles/users/by-role/Teacher")
+            teachers = teachers_res.json() if teachers_res.status_code == 200 else []
+        except:
+            teachers = []
+
+        teacher_options = {"-- No Teacher Assigned --": None}
+        if teachers:
+            teacher_options.update(
+                {
+                    f"{t['first_name']} {t['last_name']}": t["user_uuid"]
+                    for t in teachers
+                }
+            )
+
+        # Pre-select logged-in teacher as default
+        logged_in_teacher_name = teacher_name
+        default_index = 0
+        if logged_in_teacher_name in teacher_options:
+            default_index = list(teacher_options.keys()).index(logged_in_teacher_name)
+
+        selected_teacher_name = st.selectbox(
+            "Assign Teacher",
+            options=list(teacher_options.keys()),
+            index=default_index,
+            help="Select the teacher who taught this class (you can assign yourself to any class)",
+        )
+
+    with col4:
+        # Assignment button
+        selected_teacher_uuid = teacher_options.get(selected_teacher_name)
+        class_selected = selected_class_name != "-- Select Class --"
+        teacher_selected = selected_teacher_uuid is not None
+
+        button_disabled = not (class_selected and teacher_selected)
+
+        if st.button(
+            "💾 Assign Teacher",
+            disabled=button_disabled,
+            help="Assigns teacher to this class instance"
+            if not button_disabled
+            else "Select class and teacher first",
+            use_container_width=True,
         ):
-            # Enabled button
-            if st.button(
-                "💾 Assign Teacher",
-                type="primary",
-                use_container_width=True,
-                help=f"Assign {selected_teacher_name} to {selected_class_name} on {selected_date.strftime('%Y-%m-%d')}",
-            ):
-                # Get class_id from selected class
+            if class_selected and teacher_selected:
                 class_id = class_data[selected_class_name]["id"]
 
-                with st.spinner("Assigning teacher..."):
-                    try:
-                        # Check if ClassInstance exists
-                        instance_check = requests.get(
-                            f"{BASE_URL}/class-instances/by-date/",
-                            params={
-                                "class_id": class_id,
-                                "class_date": str(selected_date),
-                            },
-                        )
+                # Check if ClassInstance exists
+                try:
+                    instance_res = requests.get(
+                        f"{BASE_URL}/class-instances/by-date/",
+                        params={"class_id": class_id, "class_date": str(selected_date)},
+                    )
 
-                        if instance_check.status_code == 200:
-                            # Update existing ClassInstance
-                            instance_id = instance_check.json()["id"]
+                    with st.spinner("Assigning teacher..."):
+                        if instance_res.status_code == 200:
+                            # Update existing instance
+                            instance = instance_res.json()
                             update_res = requests.put(
-                                f"{BASE_URL}/class-instances/{instance_id}",
+                                f"{BASE_URL}/class-instances/{instance['id']}",
                                 json={"teacher_uuid": selected_teacher_uuid},
                             )
-                            action = "updated"
+                            if update_res.status_code == 200:
+                                st.success(
+                                    f"✅ Assigned {selected_teacher_name} to class!"
+                                )
+                                st.toast("Teacher assigned successfully!", icon="✅")
+                                st.rerun()
+                            else:
+                                st.error(
+                                    f"❌ Failed to update: {update_res.json().get('detail')}"
+                                )
                         else:
-                            # Create new ClassInstance
-                            update_res = requests.post(
+                            # Create new instance
+                            create_res = requests.post(
                                 f"{BASE_URL}/class-instances/",
                                 json={
                                     "class_id": class_id,
@@ -153,315 +262,202 @@ with col4:
                                     "lesson_id": None,
                                 },
                             )
-                            action = "assigned"
+                            if create_res.status_code == 200:
+                                st.success(
+                                    f"✅ Assigned {selected_teacher_name} to class!"
+                                )
+                                st.toast("Teacher assigned successfully!", icon="✅")
+                                st.rerun()
+                            else:
+                                st.error(
+                                    f"❌ Failed to create: {create_res.json().get('detail')}"
+                                )
+                except Exception as e:
+                    st.error(f"⚠️ Error: {str(e)}")
 
-                        if update_res.status_code == 200:
-                            st.success(
-                                f"✅ {selected_teacher_name} {action} successfully!"
+    # Show student roster if class selected
+    if selected_class_name != "-- Select Class --":
+        class_id = class_data[selected_class_name]["id"]
+
+        st.divider()
+        st.subheader(f"📊 {selected_class_name} - {selected_date}")
+
+        # Fetch attendance for this class and date
+        try:
+            attendance_res = requests.get(
+                f"{BASE_URL}/attendance/class/{class_id}",
+                params={"class_date": str(selected_date)},
+            )
+
+            if attendance_res.status_code == 200:
+                attendance_records = attendance_res.json()
+
+                if not attendance_records:
+                    st.info("No students have checked in yet for this class.")
+                else:
+                    # Display student roster
+                    roster_data = []
+                    for record in attendance_records:
+                        roster_data.append(
+                            {
+                                "Name": f"{record.get('first_name', '')} {record.get('last_name', '')}",
+                                "Rank": record.get("rank", "N/A"),
+                                "Check-in Time": pd.to_datetime(
+                                    record.get("created_at")
+                                ).strftime("%H:%M:%S")
+                                if record.get("created_at")
+                                else "N/A",
+                            }
+                        )
+
+                    df_roster = pd.DataFrame(roster_data)
+                    st.dataframe(df_roster, use_container_width=True, hide_index=True)
+                    st.caption(f"**Total Attendees:** {len(roster_data)}")
+            else:
+                st.error("Failed to fetch attendance records")
+        except Exception as e:
+            st.error(f"⚠️ Error fetching attendance: {str(e)}")
+
+
+# --- TAB 2: FEEDBACK ---
+with tab2:
+    st.header("💬 Student Feedback")
+    st.markdown(
+        "Feedback from students for classes you taught (student names are anonymous)"
+    )
+
+    teacher_uuid = st.session_state.teacher_info["user_uuid"]
+
+    # Fetch feedback for this teacher
+    try:
+        feedback_res = requests.get(f"{BASE_URL}/feedback/teacher/{teacher_uuid}")
+
+        if feedback_res.status_code == 200:
+            feedback_records = feedback_res.json()
+
+            if not feedback_records:
+                st.info("📭 No feedback yet for classes you've taught")
+            else:
+                # Filters
+                with st.expander("🔍 Filters"):
+                    col_f1, col_f2, col_f3 = st.columns(3)
+
+                    with col_f1:
+                        # Date range filter
+                        dates = [
+                            pd.to_datetime(f["class_date"]).date()
+                            for f in feedback_records
+                            if f.get("class_date")
+                        ]
+                        if dates:
+                            min_date = min(dates)
+                            max_date = max(dates)
+                            date_range = st.date_input(
+                                "Date Range",
+                                value=(min_date, max_date),
+                                min_value=min_date,
+                                max_value=max_date,
                             )
-                            st.toast(f"Teacher {action}!", icon="✅")
-                            st.rerun()
                         else:
-                            detail = update_res.json().get("detail", "Unknown error")
-                            st.error(f"❌ Failed to assign teacher: {detail}")
+                            date_range = None
 
-                    except Exception as e:
-                        st.error(f"⚠️ Connection error: {e}")
-        else:
-            # Disabled button - no teacher selected
-            st.button(
-                "💾 Assign Teacher",
-                disabled=True,
-                use_container_width=True,
-                help="Select a teacher first",
-            )
-    else:
-        # Disabled button - no class selected
-        st.button(
-            "💾 Assign Teacher",
-            disabled=True,
-            use_container_width=True,
-            help="Select a class first",
-        )
+                    with col_f2:
+                        # Class filter
+                        all_classes = list(
+                            set(
+                                [
+                                    f["class_name"]
+                                    for f in feedback_records
+                                    if f.get("class_name")
+                                ]
+                            )
+                        )
+                        selected_classes = st.multiselect(
+                            "Classes", options=all_classes, default=all_classes
+                        )
 
-# --- DISPLAY ENROLLED STUDENTS ---
-if selected_class_name != "-- Select Class --":
-    class_id = class_data[selected_class_name]["id"]
-    class_name = class_data[selected_class_name]["name"]
+                    with col_f3:
+                        # Rating filter
+                        rating_filter = st.selectbox(
+                            "Rating", options=["All", "Positive", "Negative"]
+                        )
 
-    st.divider()
-    st.subheader(f"Students Enrolled: {selected_class_name}")
-    st.caption(f"Date: {selected_date.strftime('%B %d, %Y')}")
+                # Apply filters
+                filtered_records = feedback_records
 
-    # Fetch ClassInstance to get current teacher assignment
-    current_instance = None
-    try:
-        instance_res = requests.get(
-            f"{BASE_URL}/class-instances/by-date/",
-            params={"class_id": class_id, "class_date": str(selected_date)},
-        )
-        if instance_res.status_code == 200:
-            current_instance = instance_res.json()
-    except Exception:
-        # ClassInstance may not exist yet - that's okay
-        pass
+                if date_range and len(date_range) == 2:
+                    filtered_records = [
+                        f
+                        for f in filtered_records
+                        if date_range[0]
+                        <= pd.to_datetime(f["class_date"]).date()
+                        <= date_range[1]
+                    ]
 
-    # Fetch attendance records for this class and date
-    try:
-        attendance_res = requests.get(
-            f"{BASE_URL}/attendance/class/{class_name}",
-            params={"start_date": str(selected_date), "end_date": str(selected_date)},
-        )
+                if selected_classes:
+                    filtered_records = [
+                        f
+                        for f in filtered_records
+                        if f.get("class_name") in selected_classes
+                    ]
 
-        if attendance_res.status_code == 200:
-            attendance_data = attendance_res.json()
+                if rating_filter != "All":
+                    if rating_filter == "Positive":
+                        filtered_records = [
+                            f
+                            for f in filtered_records
+                            if f.get("rating") == "thumbs_up"
+                        ]
+                    else:
+                        filtered_records = [
+                            f
+                            for f in filtered_records
+                            if f.get("rating") == "thumbs_down"
+                        ]
 
-            # Always show teacher assignment interface, even if no students
-            # Create DataFrame for display (empty if no students)
-            df_attendance = (
-                pd.DataFrame(attendance_data) if attendance_data else pd.DataFrame()
-            )
-
-            # Display metrics
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Students", len(df_attendance))
-            with col2:
-                if len(df_attendance) > 0 and "points" in df_attendance.columns:
-                    total_points = df_attendance["points"].sum()
-                    st.metric("Total Points", f"{total_points:.1f}")
-                else:
-                    st.metric("Total Points", "0.0")
-            with col3:
-                # Show current teacher from ClassInstance
-                if current_instance and current_instance.get("teacher_name"):
-                    st.metric("Current Teacher", current_instance["teacher_name"])
-                else:
-                    st.metric("Current Teacher", "Not Assigned")
-
-            st.divider()
-
-            # Show info if no students checked in yet
-            if len(df_attendance) == 0:
-                st.info(
-                    "ℹ️ No students have checked in yet. Teacher can be assigned using the button at the top."
-                )
-
-            # Display student roster only if there are students
-            if attendance_data:
-                st.subheader("📋 Student Roster")
-
-                # Format display columns
-                display_columns = ["userfullname", "rank_at_time", "points"]
-                if "teacher_name" in df_attendance.columns:
-                    display_columns.append("teacher_name")
-
-                display_df = df_attendance[display_columns].copy()
-                display_df.columns = (
-                    ["Student Name", "Rank", "Points", "Assigned Teacher"]
-                    if "teacher_name" in df_attendance.columns
-                    else ["Student Name", "Rank", "Points"]
-                )
-
-                st.dataframe(display_df, hide_index=True, width="stretch")
-
-                # Export option
-                st.download_button(
-                    label="📥 Download Roster (CSV)",
-                    data=display_df.to_csv(index=False).encode("utf-8"),
-                    file_name=f"roster_{selected_date}_{class_name.replace(' ', '_')}.csv",
-                    mime="text/csv",
-                )
+                # Display metrics
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    st.metric("Total Feedback", len(filtered_records))
+                with col_m2:
+                    positive = sum(
+                        1 for f in filtered_records if f.get("rating") == "thumbs_up"
+                    )
+                    st.metric("👍 Positive", positive)
+                with col_m3:
+                    negative = sum(
+                        1 for f in filtered_records if f.get("rating") == "thumbs_down"
+                    )
+                    st.metric("👎 Negative", negative)
 
                 st.divider()
 
-            # --- LESSON INFORMATION SECTION ---
-            # Always show lesson section (uses ClassInstance we already fetched)
-            st.subheader("📚 Lesson Information")
-
-            if current_instance:
-                # Display lesson title if exists
-                if current_instance.get("lesson_title"):
-                    st.markdown(f"### {current_instance['lesson_title']}")
-                else:
-                    st.info("No lesson title set for this class")
-
-                # Display lesson resources
-                col_lesson1, col_lesson2 = st.columns(2)
-
-                with col_lesson1:
-                    if current_instance.get("lesson_plan_url"):
-                        st.link_button(
-                            "📄 Open Lesson Plan",
-                            current_instance["lesson_plan_url"],
-                            use_container_width=True,
-                        )
-                    else:
-                        st.info("📄 No lesson plan available")
-
-                with col_lesson2:
-                    if current_instance.get("video_folder_url"):
-                        st.link_button(
-                            "🎥 Open Video Folder",
-                            current_instance["video_folder_url"],
-                            use_container_width=True,
-                        )
-                    else:
-                        st.info("🎥 No video folder available")
-
-                # Show lesson metadata
-                with st.expander("📋 Lesson Details"):
-                    st.write(f"**Class:** {current_instance.get('class_name', 'N/A')}")
-                    st.write(f"**Date:** {current_instance.get('class_date', 'N/A')}")
-                    st.write(
-                        f"**Teacher:** {current_instance.get('teacher_name', 'Not assigned')}"
+                # Display feedback table (ANONYMOUS - no student names)
+                feedback_display = []
+                for record in filtered_records:
+                    feedback_display.append(
+                        {
+                            "Date": pd.to_datetime(record["class_date"]).strftime(
+                                "%Y-%m-%d"
+                            ),
+                            "Class": record.get("class_name", "Unknown"),
+                            "Lesson": record.get("lesson_title") or "No lesson",
+                            "Rating": "👍 Positive"
+                            if record.get("rating") == "thumbs_up"
+                            else "👎 Negative"
+                            if record.get("rating") == "thumbs_down"
+                            else "N/A",
+                            "Comment": record.get("comment") or "No comment",
+                        }
                     )
-                    if current_instance.get("lesson_plan_url"):
-                        st.code(current_instance["lesson_plan_url"], language=None)
-                    if current_instance.get("video_folder_url"):
-                        st.code(current_instance["video_folder_url"], language=None)
 
-            else:
-                st.info("ℹ️ No lesson plan has been created for this class yet")
-                st.caption(
-                    "Admins can add lesson plans in the Settings page under the Lessons tab"
-                )
+                df_feedback = pd.DataFrame(feedback_display)
+                st.dataframe(df_feedback, use_container_width=True, hide_index=True)
 
-            st.divider()
-
-            # --- FEEDBACK SECTION ---
-            st.subheader("💬 Student Feedback")
-
-            # Get feedback stats for this class instance
-            if current_instance:
-                try:
-                    feedback_res = requests.get(
-                        f"{BASE_URL}/feedback/class-instance/{current_instance['id']}/stats"
-                    )
-                    if feedback_res.status_code == 200:
-                        feedback_stats = feedback_res.json()
-
-                        # Display metrics
-                        col_fb1, col_fb2, col_fb3, col_fb4 = st.columns(4)
-
-                        with col_fb1:
-                            st.metric(
-                                "Total Feedback",
-                                feedback_stats["total_feedback"],
-                            )
-
-                        with col_fb2:
-                            st.metric("👍 Thumbs Up", feedback_stats["thumbs_up_count"])
-
-                        with col_fb3:
-                            st.metric(
-                                "👎 Thumbs Down", feedback_stats["thumbs_down_count"]
-                            )
-
-                        with col_fb4:
-                            st.metric(
-                                "Response Rate",
-                                f"{feedback_stats['feedback_rate']:.1f}%",
-                            )
-
-                        # Calculate sentiment
-                        if feedback_stats["total_feedback"] > 0:
-                            positive_rate = (
-                                feedback_stats["thumbs_up_count"]
-                                / feedback_stats["total_feedback"]
-                                * 100
-                            )
-
-                            if positive_rate >= 80:
-                                sentiment = "🎉 Excellent!"
-                                sentiment_color = "green"
-                            elif positive_rate >= 60:
-                                sentiment = "😊 Good"
-                                sentiment_color = "blue"
-                            elif positive_rate >= 40:
-                                sentiment = "😐 Mixed"
-                                sentiment_color = "orange"
-                            else:
-                                sentiment = "😔 Needs Improvement"
-                                sentiment_color = "red"
-
-                            st.markdown(
-                                f"**Overall Sentiment:** :{sentiment_color}[{sentiment}]"
-                            )
-
-                            # Fetch individual feedback comments
-                            try:
-                                # Get all feedback for this class instance (need to fetch individually)
-                                comments = []
-                                if attendance_data:
-                                    for att in attendance_data:
-                                        try:
-                                            fb_res = requests.get(
-                                                f"{BASE_URL}/feedback/attendance/{att['id']}"
-                                            )
-                                            if fb_res.status_code == 200:
-                                                fb_data = fb_res.json()
-                                                if fb_data.get("comment"):
-                                                    comments.append(
-                                                        {
-                                                            "student": fb_data[
-                                                                "user_full_name"
-                                                            ],
-                                                            "rating": fb_data["rating"],
-                                                            "comment": fb_data[
-                                                                "comment"
-                                                            ],
-                                                        }
-                                                    )
-                                        except:
-                                            continue
-
-                                if comments:
-                                    with st.expander("📝 View Comments"):
-                                        for comment in comments:
-                                            rating_emoji = (
-                                                "👍"
-                                                if comment["rating"] == "thumbs_up"
-                                                else "👎"
-                                            )
-                                            st.markdown(
-                                                f"{rating_emoji} **{comment['student']}**: {comment['comment']}"
-                                            )
-                                            st.markdown("---")
-                            except Exception as e:
-                                st.caption(f"Could not load comments: {e}")
-
-                        else:
-                            st.info(
-                                "No feedback submitted yet for this class. Encourage students to share their thoughts!"
-                            )
-
-                    else:
-                        st.info("No feedback available for this class yet")
-
-                except Exception as e:
-                    st.warning(f"Could not load feedback: {e}")
-            else:
-                st.info(
-                    "Select a class and date to view feedback (class instance must exist)"
-                )
-
-        elif attendance_res.status_code == 500:
-            st.error("⚠️ Server error fetching attendance data")
-            st.caption(
-                "This might be due to missing data. Please contact support if this persists."
-            )
-            with st.expander("Technical Details"):
-                st.code(attendance_res.text)
+                st.caption("ℹ️ Student names are kept anonymous for privacy")
         else:
             st.error(
-                f"❌ Failed to fetch attendance data: {attendance_res.status_code}"
+                f"Failed to fetch feedback: {feedback_res.json().get('detail', 'Unknown error')}"
             )
-            st.caption(f"Status: {attendance_res.status_code}")
-
     except Exception as e:
-        st.error(f"⚠️ Connection error: {e}")
-        st.caption("Please check that the backend server is running.")
-
-else:
-    st.info("👆 Please select a class and date to view enrolled students")
+        st.error(f"⚠️ Error loading feedback: {str(e)}")
