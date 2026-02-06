@@ -1082,12 +1082,22 @@ class User(Base):
 
 **Authentication:**
 ```
-POST   /auth/teacher-login          # Login with email/password, return JWT
+POST   /auth/login                  # Student login with email/password
+POST   /auth/teacher-login          # Teacher login with email/password, return JWT
 POST   /auth/verify-session         # Verify token, extend expiry
+```
+
+**Password Management:**
+```
+POST   /auth/set-password           # Set or update user password (admin)
+GET    /auth/check-password/{uuid}  # Check if user has password set
+DELETE /auth/remove-password/{uuid} # Remove user password (admin)
 ```
 
 **Feedback:**
 ```
+POST   /feedback/                                   # Create feedback (student)
+GET    /feedback/user/{uuid}                        # Get user's feedback (student)
 GET    /feedback/teacher/{uuid}                     # Teacher's feedback (anonymous)
 GET    /feedback/admin/comprehensive-stats          # All feedback (admin view)
 ```
@@ -1095,6 +1105,24 @@ GET    /feedback/admin/comprehensive-stats          # All feedback (admin view)
 **Request/Response Examples:**
 
 ```python
+# Student Login
+POST /auth/login
+Body: {
+  "email": "student@ckb.com",
+  "password": "student123"
+}
+Response: {
+  "id": 1,
+  "user_uuid": "...",
+  "first_name": "Mike",
+  "last_name": "Student",
+  "email": "student@ckb.com",
+  "rank": "Blue Belt",
+  "profile_image_url": null,
+  "is_current": true,
+  ...
+}
+
 # Teacher Login
 POST /auth/teacher-login
 Body: username=teacher@ckb.com&password=teacher123 (form data)
@@ -1117,6 +1145,65 @@ Response: {
   "new_token": "eyJ...",
   "user_uuid": "..."
 }
+
+# Set/Update Password
+POST /auth/set-password
+Body: {
+  "user_uuid": "user-uuid-here",
+  "password": "newpassword123"
+}
+Response: {
+  "message": "Password set successfully",
+  "user_uuid": "user-uuid-here"
+}
+
+# Check Password Status
+GET /auth/check-password/{user_uuid}
+Response: {
+  "user_uuid": "user-uuid-here",
+  "has_password": true
+}
+
+# Remove Password
+DELETE /auth/remove-password/{user_uuid}
+Response: {
+  "message": "Password removed successfully",
+  "user_uuid": "user-uuid-here"
+}
+
+# Create Feedback (Student)
+POST /feedback/
+Body: {
+  "attendance_id": 123,
+  "rating": "thumbs_up",
+  "comment": "Great class, learned a lot!"
+}
+Response: {
+  "id": 1,
+  "user_uuid": "user-uuid",
+  "attendance_id": 123,
+  "class_instance_id": 45,
+  "rating": "thumbs_up",
+  "comment": "Great class, learned a lot!",
+  "created_at": "2026-02-06T10:30:00",
+  "class_date": "2026-02-06",
+  "class_name": "Fundamentals 1",
+  "lesson_title": "Guard Passing"
+}
+
+# Get User's Feedback (Student)
+GET /feedback/user/{user_uuid}
+Response: [
+  {
+    "id": 1,
+    "attendance_id": 123,
+    "rating": "thumbs_up",
+    "comment": "Great class!",
+    "class_date": "2026-02-06",
+    "class_name": "Fundamentals 1",
+    "lesson_title": "Guard Passing"
+  }
+]
 
 # Teacher Feedback (Anonymous)
 GET /feedback/teacher/{teacher_uuid}
