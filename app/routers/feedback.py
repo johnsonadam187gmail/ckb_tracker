@@ -15,7 +15,7 @@ def get_feedback_for_teacher(teacher_uuid: str, db: Session = Depends(get_db)):
             models.ClassFeedback,
             models.ClassInstance.class_date,
             models.ClassSchedule.class_name,
-            models.Lesson.lesson_title,
+            models.Lesson.title,
         )
         .join(
             models.ClassInstance,
