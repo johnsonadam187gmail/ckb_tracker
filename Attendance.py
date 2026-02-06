@@ -83,6 +83,13 @@ with st.sidebar.form("add_user_form"):
     first_name = st.text_input("First Name")
     last_name = st.text_input("Last Name")
     email = st.text_input("Email")
+
+    # Password fields (required)
+    password = st.text_input(
+        "Password", type="password", help="Minimum 6 characters required"
+    )
+    confirm_password = st.text_input("Confirm Password", type="password")
+
     nicknames = st.text_input("Nicknames (Optional)")
     rank = st.selectbox("Current Rank", ["White", "Blue", "Purple", "Brown", "Black"])
     last_grade = st.date_input("Last Grading Date", value=date.today())
@@ -96,34 +103,52 @@ with st.sidebar.form("add_user_form"):
     submit_button = st.form_submit_button("Create Member")
 
 if submit_button:
-    # Prepare the form data for FastAPI
-    payload = {
-        "first_name": first_name,
-        "last_name": last_name,
-        "email": email,
-        "nicknames": nicknames,
-        "rank": rank,
-        "last_grade_date": str(last_grade),  # Convert date to string for the form
-        "comments": comments,
-    }
-
-    # Handle the file upload part
-    files = None
-    if uploaded_file:
-        files = {
-            "file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)
+    # Validate required fields
+    if not first_name or not last_name or not email:
+        st.sidebar.error("❌ First Name, Last Name, and Email are required!")
+    elif not password or not confirm_password:
+        st.sidebar.error("❌ Password is required!")
+    elif len(password) < 6:
+        st.sidebar.error("❌ Password must be at least 6 characters!")
+    elif password != confirm_password:
+        st.sidebar.error("❌ Passwords do not match!")
+    else:
+        # Prepare the form data for FastAPI
+        payload = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "password": password,
+            "nicknames": nicknames,
+            "rank": rank,
+            "last_grade_date": str(last_grade),  # Convert date to string for the form
+            "comments": comments,
         }
 
-    try:
-        # We send a POST request to your FastAPI /users/ endpoint
-        response = requests.post(f"{BASE_URL}/users/", data=payload, files=files)
+        # Handle the file upload part
+        files = None
+        if uploaded_file:
+            files = {
+                "file": (
+                    uploaded_file.name,
+                    uploaded_file.getvalue(),
+                    uploaded_file.type,
+                )
+            }
 
-        if response.status_code == 200:
-            st.sidebar.success(f"Successfully added {first_name}!")
-        else:
-            st.sidebar.error(f"Error: {response.json().get('detail', 'Unknown error')}")
-    except Exception as e:
-        st.sidebar.error(f"Could not connect to Backend: {e}")
+        try:
+            # We send a POST request to your FastAPI /users/ endpoint
+            response = requests.post(f"{BASE_URL}/users/", data=payload, files=files)
+
+            if response.status_code == 200:
+                st.sidebar.success(f"✅ Successfully added {first_name}!")
+                st.rerun()
+            else:
+                st.sidebar.error(
+                    f"❌ Error: {response.json().get('detail', 'Unknown error')}"
+                )
+        except Exception as e:
+            st.sidebar.error(f"⚠️ Could not connect to Backend: {e}")
 
 # --- MAIN AREA: VIEW MEMBERS ---
 
