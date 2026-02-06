@@ -4,9 +4,13 @@
 # uv automatically manages the .venv folder.
 # We ignore the folder but keep the lockfile for reproducibility.
 .venv/
+venv/
+env/
+ENV/
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 
 # ==========================================
 # 2. VS CODE SPECIFIC
@@ -56,6 +60,19 @@ htmlcov/
 # ==========================================
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# ==========================================
+# 6B. TEMPORARY & BACKUP FILES
+# ==========================================
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+backups/
+Lib/
+Scripts/
 
 # ==========================================
 # 7. LOGS AND DATABASES
@@ -63,3 +80,9 @@ Thumbs.db
 *.log
 *.sqlite3
 *.db
+# Keep only the main development database
+!test.db
+
+# Test databases (can be regenerated)
+test_*.db
+*_backup.db
