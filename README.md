@@ -99,10 +99,6 @@ streamlit run Attendance.py
 ```
 Frontend runs on http://localhost:8501
 
-### Test Accounts (after running seed_users.py)
-- **Admin**: admin@ckb.com / admin123
-- **Teacher**: teacher@ckb.com / teacher123
-- **Student**: student@ckb.com / student123
 
 ## 📁 Project Structure
 
