@@ -51,6 +51,12 @@ def load_css():
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
 
+# Initialize photo capture state
+if "show_camera" not in st.session_state:
+    st.session_state.show_camera = False
+if "captured_photo" not in st.session_state:
+    st.session_state.captured_photo = None
+
 # Load CSS
 load_css()
 
@@ -79,6 +85,79 @@ with st.sidebar:
 
 # --- SIDEBAR: ADD NEW MEMBER ---
 st.sidebar.header("Add New Member")
+
+# Photo Capture Section (OUTSIDE the form to allow buttons)
+st.sidebar.markdown("### 📸 Profile Photo")
+st.sidebar.markdown("*Optional - Add a profile photo*")
+
+# Photo input method selection
+photo_method = st.sidebar.radio(
+    "Choose photo method:",
+    ["Take Photo (Camera)", "Upload File", "No Photo"],
+    key="photo_method",
+)
+
+uploaded_file = None
+
+if photo_method == "Take Photo (Camera)":
+    # Toggle button for camera
+    if not st.session_state.show_camera:
+        if st.sidebar.button(
+            "📷 Open Camera", key="open_camera", use_container_width=True
+        ):
+            st.session_state.show_camera = True
+            st.rerun()
+    else:
+        # Show the camera input
+        camera_photo = st.sidebar.camera_input(
+            "Take a photo",
+            help="Click the camera button to capture",
+            key="camera_input",
+        )
+        if camera_photo:
+            st.session_state.captured_photo = camera_photo
+            st.session_state.show_camera = False
+            st.rerun()
+
+        # Button to close camera without taking photo
+        if st.sidebar.button("❌ Cancel", key="cancel_camera"):
+            st.session_state.show_camera = False
+            st.rerun()
+
+    # Use captured photo if available
+    if st.session_state.captured_photo:
+        uploaded_file = st.session_state.captured_photo
+        st.sidebar.success("Photo captured!")
+
+elif photo_method == "Upload File":
+    # File upload
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload Profile Picture",
+        type=["jpg", "jpeg", "png"],
+        help="Supported formats: JPG, JPEG, PNG (Max 5MB)",
+    )
+    # Clear any previously captured photo
+    if st.session_state.captured_photo:
+        st.session_state.captured_photo = None
+
+else:
+    # No photo selected
+    uploaded_file = None
+    if st.session_state.captured_photo:
+        st.session_state.captured_photo = None
+
+# Preview the photo if captured/uploaded
+if uploaded_file:
+    st.sidebar.image(uploaded_file, width=200)
+    st.sidebar.caption("Photo ready for upload")
+    if st.sidebar.button("❌ Clear Photo", key="clear_photo"):
+        st.session_state.captured_photo = None
+        st.session_state.show_camera = False
+        st.rerun()
+
+st.sidebar.markdown("---")
+
+# Now the form (without camera inside it)
 with st.sidebar.form("add_user_form"):
     first_name = st.text_input("First Name")
     last_name = st.text_input("Last Name")
@@ -94,43 +173,6 @@ with st.sidebar.form("add_user_form"):
     rank = st.selectbox("Current Rank", ["White", "Blue", "Purple", "Brown", "Black"])
     last_grade = st.date_input("Last Grading Date", value=date.today())
     comments = st.text_area("Comments")
-
-    # Photo Capture Section
-    st.markdown("---")
-    st.markdown("### 📸 Profile Photo")
-
-    # Photo input method selection
-    photo_method = st.radio(
-        "Choose photo method:",
-        ["Take Photo (Camera)", "Upload File"],
-        key="photo_method",
-    )
-
-    uploaded_file = None
-
-    if photo_method == "Take Photo (Camera)":
-        # Camera input
-        camera_photo = st.camera_input(
-            "Take a photo",
-            help="Click to open camera. On mobile, this will use your device's camera.",
-            key="camera_input",
-        )
-        if camera_photo:
-            uploaded_file = camera_photo
-            st.success("✅ Photo captured!")
-    else:
-        # File upload
-        uploaded_file = st.file_uploader(
-            "Upload Profile Picture",
-            type=["jpg", "jpeg", "png"],
-            help="Supported formats: JPG, JPEG, PNG (Max 5MB)",
-        )
-
-    # Preview the photo if captured/uploaded
-    if uploaded_file:
-        st.markdown("**Preview:**")
-        st.image(uploaded_file, width=200)
-        st.caption("Photo will be uploaded when you click 'Create Member'")
 
     submit_button = st.form_submit_button("Create Member")
 
@@ -174,6 +216,9 @@ if submit_button:
 
             if response.status_code == 200:
                 st.sidebar.success(f"✅ Successfully added {first_name}!")
+                # Clear the captured photo after successful creation
+                st.session_state.captured_photo = None
+                st.session_state.show_camera = False
                 st.rerun()
             else:
                 st.sidebar.error(
