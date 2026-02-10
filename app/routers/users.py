@@ -47,6 +47,7 @@ def create_user(
     image_url = None
     public_id = None
     thumbnail_url = None
+    original_image_bytes = None  # Store bytes for potential re-upload
 
     if file:
         try:
@@ -55,19 +56,19 @@ def create_user(
 
             # Read file content - ensure we seek to beginning first
             file.file.seek(0)
-            image_bytes = file.file.read()
+            original_image_bytes = file.file.read()
 
             # Debug: Check what we received
             print(
-                f"DEBUG: Received file: {file.filename}, size: {len(image_bytes)} bytes, type: {file.content_type}"
+                f"DEBUG: Received file: {file.filename}, size: {len(original_image_bytes)} bytes, type: {file.content_type}"
             )
 
-            if len(image_bytes) == 0:
+            if len(original_image_bytes) == 0:
                 raise ValueError("Received empty file")
 
             # Upload to Cloudinary with temporary UUID
             upload_result = cloudinary_service.upload_profile_photo(
-                image_bytes=image_bytes, user_uuid=temp_uuid
+                image_bytes=original_image_bytes, user_uuid=temp_uuid
             )
 
             print(f"DEBUG: Upload successful, URL: {upload_result['url']}")
@@ -122,26 +123,26 @@ def create_user(
 
     # If we uploaded an image, we need to re-upload it with the correct UUID
     # This is necessary because we didn't have the user's UUID before creation
-    if public_id and image_url:
+    if public_id and image_url and original_image_bytes:
         try:
             # Extract old public_id and delete it
             old_public_id = cloudinary_service.extract_public_id_from_url(image_url)
             if old_public_id:
                 cloudinary_service.delete_photo(old_public_id)
 
-            # Re-upload with correct UUID
-            image_bytes = file.file.read() if hasattr(file.file, "read") else None
-            if image_bytes:
-                upload_result = cloudinary_service.upload_profile_photo(
-                    image_bytes=image_bytes, user_uuid=new_user.user_uuid
-                )
+            # Re-upload with correct UUID using the stored bytes
+            upload_result = cloudinary_service.upload_profile_photo(
+                image_bytes=original_image_bytes, user_uuid=new_user.user_uuid
+            )
 
-                # Update the user record with new URLs
-                new_user.profile_image_url = upload_result["url"]
-                db.commit()
-                db.refresh(new_user)
-        except Exception:
+            # Update the user record with new URLs
+            new_user.profile_image_url = upload_result["url"]
+            db.commit()
+            db.refresh(new_user)
+            print(f"DEBUG: Re-uploaded with correct UUID: {upload_result['url']}")
+        except Exception as e:
             # If re-upload fails, keep the original URL - it's still valid
+            print(f"DEBUG: Re-upload failed: {e}")
             pass
 
     # Assign default "Student" role

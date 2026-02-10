@@ -202,10 +202,14 @@ if submit_button:
         # Handle the file upload part
         files = None
         if uploaded_file:
+            file_bytes = uploaded_file.getvalue()
+            st.sidebar.write(f"DEBUG: File size: {len(file_bytes)} bytes")
+            st.sidebar.write(f"DEBUG: File name: {uploaded_file.name}")
+            st.sidebar.write(f"DEBUG: File type: {uploaded_file.type}")
             files = {
                 "file": (
                     uploaded_file.name,
-                    uploaded_file.getvalue(),
+                    file_bytes,
                     uploaded_file.type,
                 )
             }
