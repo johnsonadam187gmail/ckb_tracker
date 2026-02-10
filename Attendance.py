@@ -252,29 +252,21 @@ if selected_class_name:
 
     st.subheader("Class Attendance")
 
-    # DEBUG: Show photo URLs for first member
-    if members and len(members) > 0:
-        with st.expander("Debug: Photo URLs", expanded=False):
-            for i, m in enumerate(members[:3]):  # Show first 3
-                st.write(f"{m['first_name']}: {m.get('profile_image_url', 'NO URL')}")
-
     for m in members:
         # Create columns for photo, info, and button
-        cols = st.columns([1, 4, 1.5])
+        cols = st.columns([0.6, 3, 1])
 
         # Photo column
         with cols[0]:
-            if m.get("profile_image_url"):
-                # Use HTML img tag for better control
-                img_url = m["profile_image_url"]
-                st.markdown(
-                    f'<img src="{img_url}" width="50" style="border-radius: 50%; object-fit: cover;">',
-                    unsafe_allow_html=True,
-                )
+            img_url = m.get("profile_image_url")
+            if img_url:
+                try:
+                    st.image(img_url, width=50)
+                except Exception:
+                    # Fallback to emoji if image fails to load
+                    st.markdown("👤", help="Photo unavailable")
             else:
-                st.markdown(
-                    "<span style='font-size: 30px;'>👤</span>", unsafe_allow_html=True
-                )
+                st.markdown("👤", help="No photo")
 
         # Name and info column
         with cols[1]:
