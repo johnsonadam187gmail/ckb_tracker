@@ -514,7 +514,7 @@ if check_password():
                                 st.markdown("👤")
 
                         with col_actions:
-                            # Photo update - MOVED OUTSIDE FORM to allow camera button
+                            # Photo update section
                             st.caption("Upload new photo or take a picture")
 
                             # Photo input method
@@ -527,7 +527,7 @@ if check_password():
                             new_photo = None
 
                             if photo_method == "Take Photo (Camera)":
-                                # Use button to activate camera (outside form)
+                                # Use button to activate camera
                                 if (
                                     f"show_camera_{member['user_uuid']}"
                                     not in st.session_state
@@ -552,6 +552,10 @@ if check_password():
                                         "Take a photo",
                                         key=f"camera_{member['user_uuid']}",
                                     )
+                                    if new_photo:
+                                        st.image(
+                                            new_photo, width=150, caption="Preview"
+                                        )
                                     if st.button(
                                         "❌ Cancel",
                                         key=f"cancel_cam_{member['user_uuid']}",
@@ -579,22 +583,27 @@ if check_password():
                                 if new_photo:
                                     st.image(new_photo, width=150, caption="Preview")
 
-                                col_update, col_delete = st.columns(2)
+                            # Action buttons - always shown regardless of method
+                            col_update, col_delete = st.columns(2)
 
-                                with col_update:
-                                    submit_photo = st.form_submit_button(
-                                        "📤 Update Photo", use_container_width=True
-                                    )
+                            with col_update:
+                                update_clicked = st.button(
+                                    "📤 Update Photo",
+                                    key=f"update_photo_{member['user_uuid']}",
+                                    use_container_width=True,
+                                )
 
-                                with col_delete:
-                                    delete_photo = st.form_submit_button(
-                                        "🗑️ Delete Photo",
-                                        use_container_width=True,
-                                        type="secondary",
-                                    )
+                            with col_delete:
+                                delete_clicked = st.button(
+                                    "🗑️ Delete Photo",
+                                    key=f"delete_photo_{member['user_uuid']}",
+                                    use_container_width=True,
+                                    type="secondary",
+                                )
 
-                                if submit_photo and new_photo:
-                                    # Upload new photo
+                            # Handle update
+                            if update_clicked:
+                                if new_photo:
                                     try:
                                         files = {
                                             "file": (
@@ -620,32 +629,29 @@ if check_password():
                                             st.error(f"❌ Failed: {error_detail}")
                                     except Exception as e:
                                         st.error(f"⚠️ Upload error: {e}")
+                                else:
+                                    st.warning("Please select or capture a photo first")
 
-                                elif submit_photo and not new_photo:
-                                    st.warning("Please select a photo first")
+                            # Handle delete
+                            if delete_clicked:
+                                if not member.get("profile_image_url"):
+                                    st.warning("No photo to delete")
+                                else:
+                                    try:
+                                        response = requests.delete(
+                                            f"{BASE_URL}/users/{member['user_uuid']}/photo"
+                                        )
 
-                                elif delete_photo:
-                                    if not member.get("profile_image_url"):
-                                        st.warning("No photo to delete")
-                                    else:
-                                        # Delete photo
-                                        try:
-                                            response = requests.delete(
-                                                f"{BASE_URL}/users/{member['user_uuid']}/photo"
+                                        if response.status_code == 200:
+                                            st.success("✅ Photo deleted successfully!")
+                                            st.rerun()
+                                        else:
+                                            error_detail = response.json().get(
+                                                "detail", "Unknown error"
                                             )
-
-                                            if response.status_code == 200:
-                                                st.success(
-                                                    "✅ Photo deleted successfully!"
-                                                )
-                                                st.rerun()
-                                            else:
-                                                error_detail = response.json().get(
-                                                    "detail", "Unknown error"
-                                                )
-                                                st.error(f"❌ Failed: {error_detail}")
-                                        except Exception as e:
-                                            st.error(f"⚠️ Delete error: {e}")
+                                            st.error(f"❌ Failed: {error_detail}")
+                                    except Exception as e:
+                                        st.error(f"⚠️ Delete error: {e}")
 
             else:
                 st.error(f"Error fetching users: {u_res.text}")
