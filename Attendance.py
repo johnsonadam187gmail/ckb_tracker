@@ -272,21 +272,13 @@ if selected_class_name:
         with cols[0]:
             img_url = m.get("profile_image_url")
             if img_url:
-                # Show emoji placeholder with the actual image using HTML
-                st.markdown(
-                    f"""
-                    <div style="width: 50px; height: 50px; border-radius: 50%; overflow: hidden;">
-                        <img src="{img_url}" style="width: 100%; height: 100%; object-fit: cover;" 
-                             onerror="this.style.display='none'; this.parentElement.innerHTML='👤';" />
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                # Use simple st.image with error handling via columns
+                try:
+                    st.image(img_url, width=50)
+                except Exception:
+                    st.markdown("👤", help="Photo unavailable")
             else:
-                st.markdown(
-                    "<div style='font-size: 35px; text-align: center;'>👤</div>",
-                    unsafe_allow_html=True,
-                )
+                st.markdown("👤", help="No photo")
 
         # Name and info column
         with cols[1]:
