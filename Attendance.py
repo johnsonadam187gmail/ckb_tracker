@@ -130,12 +130,7 @@ with st.sidebar.form("add_user_form"):
     if uploaded_file:
         st.markdown("**Preview:**")
         st.image(uploaded_file, width=200)
-        if st.button("❌ Clear Photo", key="clear_photo"):
-            # Reset the file
-            uploaded_file = None
-            if "camera_input" in st.session_state:
-                del st.session_state["camera_input"]
-            st.rerun()
+        st.caption("Photo will be uploaded when you click 'Create Member'")
 
     submit_button = st.form_submit_button("Create Member")
 
