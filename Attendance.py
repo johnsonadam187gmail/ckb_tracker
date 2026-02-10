@@ -252,34 +252,47 @@ if selected_class_name:
 
     st.subheader("Class Attendance")
     for m in members:
-        col_name, col_btn = st.columns([3, 1])
-        col_name.write(f"**{m['first_name']} {m['last_name']}** ({m['rank']})")
+        # Create columns for photo, info, and button
+        cols = st.columns([0.8, 3, 1])
 
-        if col_btn.button("Check In", key=f"checkin_{m['user_uuid']}"):
-            payload = {
-                "user_uuid": m["user_uuid"],
-                "class_id": class_id,
-                "attendance_date": str(selected_date),
-            }
+        # Photo column
+        with cols[0]:
+            if m.get("profile_image_url"):
+                st.image(m["profile_image_url"], width=60)
+            else:
+                st.markdown("👤", help="No photo")
 
-            try:
-                post_res = requests.post(f"{BASE_URL}/attendance/", data=payload)
+        # Name and info column
+        with cols[1]:
+            st.write(f"**{m['first_name']} {m['last_name']}** ({m['rank']})")
 
-                if post_res.status_code == 200:
-                    st.toast(
-                        f"✅ {m['first_name']} checked in successfully!", icon="🥋"
-                    )
+        # Button column
+        with cols[2]:
+            if st.button("Check In", key=f"checkin_{m['user_uuid']}"):
+                payload = {
+                    "user_uuid": m["user_uuid"],
+                    "class_id": class_id,
+                    "attendance_date": str(selected_date),
+                }
 
-                elif post_res.status_code == 400:
-                    # This catches the UniqueConstraint violation from the backend
-                    st.warning(
-                        f"⚠️ {m['first_name']} is already checked into this class."
-                    )
+                try:
+                    post_res = requests.post(f"{BASE_URL}/attendance/", data=payload)
 
-                else:
-                    st.error(
-                        f"Error: {post_res.json().get('detail', 'Unknown error occurred')}"
-                    )
+                    if post_res.status_code == 200:
+                        st.toast(
+                            f"✅ {m['first_name']} checked in successfully!", icon="🥋"
+                        )
 
-            except Exception as e:
-                st.error(f"Connection failed: {e}")
+                    elif post_res.status_code == 400:
+                        # This catches the UniqueConstraint violation from the backend
+                        st.warning(
+                            f"⚠️ {m['first_name']} is already checked into this class."
+                        )
+
+                    else:
+                        st.error(
+                            f"Error: {post_res.json().get('detail', 'Unknown error occurred')}"
+                        )
+
+                except Exception as e:
+                    st.error(f"Connection failed: {e}")
