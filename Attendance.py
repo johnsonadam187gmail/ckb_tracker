@@ -252,21 +252,41 @@ if selected_class_name:
 
     st.subheader("Class Attendance")
 
+    # DEBUG: Check what photo URLs are being returned
+    with st.expander("🔍 Debug: Check Photo URLs", expanded=False):
+        if members:
+            for m in members[:3]:
+                img_url = m.get("profile_image_url", "NO URL")
+                st.write(f"**{m['first_name']}:** `{img_url}`")
+                if img_url and img_url != "NO URL":
+                    # Try to display the raw URL as text
+                    st.code(f"Full URL: {img_url}", language="text")
+        else:
+            st.write("No members found")
+
     for m in members:
         # Create columns for photo, info, and button
-        cols = st.columns([0.6, 3, 1])
+        cols = st.columns([1, 4, 1.5])
 
         # Photo column
         with cols[0]:
             img_url = m.get("profile_image_url")
             if img_url:
-                try:
-                    st.image(img_url, width=50)
-                except Exception:
-                    # Fallback to emoji if image fails to load
-                    st.markdown("👤", help="Photo unavailable")
+                # Show emoji placeholder with the actual image using HTML
+                st.markdown(
+                    f"""
+                    <div style="width: 50px; height: 50px; border-radius: 50%; overflow: hidden;">
+                        <img src="{img_url}" style="width: 100%; height: 100%; object-fit: cover;" 
+                             onerror="this.style.display='none'; this.parentElement.innerHTML='👤';" />
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
             else:
-                st.markdown("👤", help="No photo")
+                st.markdown(
+                    "<div style='font-size: 35px; text-align: center;'>👤</div>",
+                    unsafe_allow_html=True,
+                )
 
         # Name and info column
         with cols[1]:
