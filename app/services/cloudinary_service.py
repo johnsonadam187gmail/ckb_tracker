@@ -173,10 +173,10 @@ class CloudinaryService:
                 pass
 
         # Upload to Cloudinary
+        # Note: public_id already includes the folder path, don't pass folder parameter
         upload_result = cloudinary.uploader.upload(
             io.BytesIO(processed_bytes),
             public_id=public_id,
-            folder=settings.cloudinary_folder,
             resource_type="image",
             eager=[
                 {"width": 100, "height": 100, "crop": "fill", "quality": "auto"},
