@@ -53,13 +53,24 @@ def create_user(
             # Generate temporary UUID for the user (will be replaced after creation)
             temp_uuid = str(uuid.uuid4())
 
-            # Read file content
+            # Read file content - ensure we seek to beginning first
+            file.file.seek(0)
             image_bytes = file.file.read()
+
+            # Debug: Check what we received
+            print(
+                f"DEBUG: Received file: {file.filename}, size: {len(image_bytes)} bytes, type: {file.content_type}"
+            )
+
+            if len(image_bytes) == 0:
+                raise ValueError("Received empty file")
 
             # Upload to Cloudinary with temporary UUID
             upload_result = cloudinary_service.upload_profile_photo(
                 image_bytes=image_bytes, user_uuid=temp_uuid
             )
+
+            print(f"DEBUG: Upload successful, URL: {upload_result['url']}")
 
             image_url = upload_result["url"]
             public_id = upload_result["public_id"]
