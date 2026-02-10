@@ -203,9 +203,10 @@ if submit_button:
         files = None
         if uploaded_file:
             file_bytes = uploaded_file.getvalue()
-            st.sidebar.write(f"DEBUG: File size: {len(file_bytes)} bytes")
-            st.sidebar.write(f"DEBUG: File name: {uploaded_file.name}")
-            st.sidebar.write(f"DEBUG: File type: {uploaded_file.type}")
+            # DEBUG: Uncomment below for debugging file uploads
+            # st.sidebar.write(f"DEBUG: File size: {len(file_bytes)} bytes")
+            # st.sidebar.write(f"DEBUG: File name: {uploaded_file.name}")
+            # st.sidebar.write(f"DEBUG: File type: {uploaded_file.type}")
             files = {
                 "file": (
                     uploaded_file.name,
@@ -256,17 +257,16 @@ if selected_class_name:
 
     st.subheader("Class Attendance")
 
-    # DEBUG: Check what photo URLs are being returned
-    with st.expander("🔍 Debug: Check Photo URLs", expanded=False):
-        if members:
-            for m in members[:3]:
-                img_url = m.get("profile_image_url", "NO URL")
-                st.write(f"**{m['first_name']}:** `{img_url}`")
-                if img_url and img_url != "NO URL":
-                    # Try to display the raw URL as text
-                    st.code(f"Full URL: {img_url}", language="text")
-        else:
-            st.write("No members found")
+    # DEBUG: Uncomment to check photo URLs
+    # with st.expander("🔍 Debug: Check Photo URLs", expanded=False):
+    #     if members:
+    #         for m in members[:3]:
+    #             img_url = m.get("profile_image_url", "NO URL")
+    #             st.write(f"**{m['first_name']}:** `{img_url}`")
+    #             if img_url and img_url != "NO URL":
+    #                 st.code(f"Full URL: {img_url}", language="text")
+    #     else:
+    #         st.write("No members found")
 
     for m in members:
         # Create columns for photo, info, and button

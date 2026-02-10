@@ -58,10 +58,10 @@ def create_user(
             file.file.seek(0)
             original_image_bytes = file.file.read()
 
-            # Debug: Check what we received
-            print(
-                f"DEBUG: Received file: {file.filename}, size: {len(original_image_bytes)} bytes, type: {file.content_type}"
-            )
+            # Debug: Uncomment to check file upload details
+            # print(
+            #     f"DEBUG: Received file: {file.filename}, size: {len(original_image_bytes)} bytes, type: {file.content_type}"
+            # )
 
             if len(original_image_bytes) == 0:
                 raise ValueError("Received empty file")
@@ -71,7 +71,8 @@ def create_user(
                 image_bytes=original_image_bytes, user_uuid=temp_uuid
             )
 
-            print(f"DEBUG: Upload successful, URL: {upload_result['url']}")
+            # Debug: Uncomment to see upload result
+            # print(f"DEBUG: Upload successful, URL: {upload_result['url']}")
 
             image_url = upload_result["url"]
             public_id = upload_result["public_id"]
@@ -139,10 +140,12 @@ def create_user(
             new_user.profile_image_url = upload_result["url"]
             db.commit()
             db.refresh(new_user)
-            print(f"DEBUG: Re-uploaded with correct UUID: {upload_result['url']}")
+            # Debug: Uncomment to see re-upload result
+            # print(f"DEBUG: Re-uploaded with correct UUID: {upload_result['url']}")
         except Exception as e:
             # If re-upload fails, keep the original URL - it's still valid
-            print(f"DEBUG: Re-upload failed: {e}")
+            # Debug: Uncomment to see error details
+            # print(f"DEBUG: Re-upload failed: {e}")
             pass
 
     # Assign default "Student" role
