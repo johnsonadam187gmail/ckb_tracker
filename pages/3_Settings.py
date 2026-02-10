@@ -494,6 +494,123 @@ if check_password():
                                                 f"API URL: {BASE_URL}/auth/set-password"
                                             )
 
+                        # --- PHOTO MANAGEMENT SECTION ---
+                        st.divider()
+                        st.subheader("📸 Photo Management")
+                        st.caption("Update or remove the member's profile photo")
+
+                        # Display current photo
+                        col_photo, col_actions = st.columns([1, 2])
+
+                        with col_photo:
+                            if member.get("profile_image_url"):
+                                st.image(
+                                    member["profile_image_url"],
+                                    width=150,
+                                    caption="Current Photo",
+                                )
+                            else:
+                                st.info("No photo set")
+                                st.markdown("👤")
+
+                        with col_actions:
+                            # Photo update form
+                            with st.form(f"update_photo_form_{member['user_uuid']}"):
+                                st.caption("Upload new photo or take a picture")
+
+                                # Photo input method
+                                photo_method = st.radio(
+                                    "Choose method:",
+                                    ["Upload File", "Take Photo (Camera)"],
+                                    key=f"photo_method_{member['user_uuid']}",
+                                )
+
+                                new_photo = None
+
+                                if photo_method == "Take Photo (Camera)":
+                                    new_photo = st.camera_input(
+                                        "Take a photo",
+                                        key=f"camera_{member['user_uuid']}",
+                                    )
+                                else:
+                                    new_photo = st.file_uploader(
+                                        "Choose photo",
+                                        type=["jpg", "jpeg", "png"],
+                                        key=f"file_{member['user_uuid']}",
+                                    )
+
+                                # Preview
+                                if new_photo:
+                                    st.image(new_photo, width=150, caption="Preview")
+
+                                col_update, col_delete = st.columns(2)
+
+                                with col_update:
+                                    submit_photo = st.form_submit_button(
+                                        "📤 Update Photo", use_container_width=True
+                                    )
+
+                                with col_delete:
+                                    delete_photo = st.form_submit_button(
+                                        "🗑️ Delete Photo",
+                                        use_container_width=True,
+                                        type="secondary",
+                                    )
+
+                                if submit_photo and new_photo:
+                                    # Upload new photo
+                                    try:
+                                        files = {
+                                            "file": (
+                                                new_photo.name,
+                                                new_photo.getvalue(),
+                                                new_photo.type,
+                                            )
+                                        }
+
+                                        response = requests.post(
+                                            f"{BASE_URL}/users/{member['user_uuid']}/photo",
+                                            files=files,
+                                        )
+
+                                        if response.status_code == 200:
+                                            result = response.json()
+                                            st.success("✅ Photo updated successfully!")
+                                            st.rerun()
+                                        else:
+                                            error_detail = response.json().get(
+                                                "detail", "Unknown error"
+                                            )
+                                            st.error(f"❌ Failed: {error_detail}")
+                                    except Exception as e:
+                                        st.error(f"⚠️ Upload error: {e}")
+
+                                elif submit_photo and not new_photo:
+                                    st.warning("Please select a photo first")
+
+                                elif delete_photo:
+                                    if not member.get("profile_image_url"):
+                                        st.warning("No photo to delete")
+                                    else:
+                                        # Delete photo
+                                        try:
+                                            response = requests.delete(
+                                                f"{BASE_URL}/users/{member['user_uuid']}/photo"
+                                            )
+
+                                            if response.status_code == 200:
+                                                st.success(
+                                                    "✅ Photo deleted successfully!"
+                                                )
+                                                st.rerun()
+                                            else:
+                                                error_detail = response.json().get(
+                                                    "detail", "Unknown error"
+                                                )
+                                                st.error(f"❌ Failed: {error_detail}")
+                                        except Exception as e:
+                                            st.error(f"⚠️ Delete error: {e}")
+
             else:
                 st.error(f"Error fetching users: {u_res.text}")
 

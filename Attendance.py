@@ -95,10 +95,47 @@ with st.sidebar.form("add_user_form"):
     last_grade = st.date_input("Last Grading Date", value=date.today())
     comments = st.text_area("Comments")
 
-    # Image Upload
-    uploaded_file = st.file_uploader(
-        "Upload Profile Picture", type=["jpg", "jpeg", "png"]
+    # Photo Capture Section
+    st.markdown("---")
+    st.markdown("### 📸 Profile Photo")
+
+    # Photo input method selection
+    photo_method = st.radio(
+        "Choose photo method:",
+        ["Take Photo (Camera)", "Upload File"],
+        key="photo_method",
     )
+
+    uploaded_file = None
+
+    if photo_method == "Take Photo (Camera)":
+        # Camera input
+        camera_photo = st.camera_input(
+            "Take a photo",
+            help="Click to open camera. On mobile, this will use your device's camera.",
+            key="camera_input",
+        )
+        if camera_photo:
+            uploaded_file = camera_photo
+            st.success("✅ Photo captured!")
+    else:
+        # File upload
+        uploaded_file = st.file_uploader(
+            "Upload Profile Picture",
+            type=["jpg", "jpeg", "png"],
+            help="Supported formats: JPG, JPEG, PNG (Max 5MB)",
+        )
+
+    # Preview the photo if captured/uploaded
+    if uploaded_file:
+        st.markdown("**Preview:**")
+        st.image(uploaded_file, width=200)
+        if st.button("❌ Clear Photo", key="clear_photo"):
+            # Reset the file
+            uploaded_file = None
+            if "camera_input" in st.session_state:
+                del st.session_state["camera_input"]
+            st.rerun()
 
     submit_button = st.form_submit_button("Create Member")
 
