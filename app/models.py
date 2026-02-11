@@ -20,8 +20,14 @@ from datetime import datetime, timezone
 class User(Base):
     __tablename__ = "users"
 
+    # Composite unique constraint for SCD Type 2 versioning
+    # Only one current version per user_uuid allowed
+    __table_args__ = (
+        UniqueConstraint("user_uuid", "is_current", name="uix_user_current"),
+    )
+
     id = Column(Integer, primary_key=True, index=True)
-    user_uuid = Column(String, unique=True, index=True)
+    user_uuid = Column(String, index=True)  # Removed unique=True for SCD Type 2
     first_name = Column(String(50), nullable=False)
     last_name = Column(String(50), nullable=False)
     email = Column(String(100), index=True, nullable=False)
