@@ -8,7 +8,8 @@
 - Database: SQLAlchemy 2.0+ with SQLite
 - Frontend: Streamlit 1.52.2+
 - Validation: Pydantic v2 (with email support)
-- Auth: Passlib with bcrypt
+- Auth: Passlib with Argon2
+- Photo Storage: Cloudinary
 
 ## Operational Guidelines
 Before moving from one task to the next, you must verify changes by running the relevant test suite (npm test) or by using the terminal to check the output/logs. Do not assume code works just because it compiles. Develop tests as you work on developing features, to ensure a full suite of tests, and that testing can be conducted and is successful after every feature add or change. 
@@ -44,6 +45,9 @@ streamlit run Attendance.py
 ```bash
 # Reset database (drops all tables and recreates)
 python reset_db.py
+
+# Seed with complete test data
+python seed_complete_data.py
 ```
 
 ### Testing
@@ -70,26 +74,204 @@ pytest --cov=app tests/
 ckb_tracker/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py          # FastAPI app + all routes
-│   ├── models.py        # SQLAlchemy models
-│   ├── schemas.py       # Pydantic schemas
-│   └── database.py      # DB connection & session
-├── assets/              # UI styling assets
-│   ├── style.css        # Main component styles
-│   ├── dark-theme.css   # Dark mode color palette
-│   └── light-theme.css  # Light mode color palette
-├── pages/               # Streamlit additional pages
+│   ├── main.py              # FastAPI app + all routes
+│   ├── models.py            # SQLAlchemy models
+│   ├── schemas.py           # Pydantic schemas
+│   ├── database.py          # DB connection & session
+│   ├── auth.py              # JWT and password hashing
+│   ├── config.py            # Application configuration
+│   ├── routers/             # API route modules
+│   │   ├── users.py
+│   │   ├── classes.py
+│   │   ├── attendance.py
+│   │   ├── terms.py
+│   │   ├── feedback.py
+│   │   └── auth.py
+│   └── services/            # External service integrations
+│       └── cloudinary_service.py
+├── assets/                  # UI styling assets
+│   ├── style.css            # Main component styles
+│   ├── dark-theme.css       # Dark mode color palette
+│   └── light-theme.css      # Light mode color palette
+├── pages/                   # Streamlit additional pages
 │   ├── 2_Analytics.py
-│   └── 3_Settings.py
+│   ├── 3_Settings.py
+│   └── 4_Teacher.py
 ├── static/
-│   └── profile_pics/    # User profile images
-├── backups/             # Backup files
-├── Attendance.py        # Main Streamlit app
-├── reset_db.py          # Database reset utility
-├── pyproject.toml       # Dependencies
-├── test.db              # SQLite database
-└── CONTEXT.md           # Project context/instructions
+│   └── profile_pics/        # User profile images (local fallback)
+├── tests/                   # Test suite
+│   ├── test_smoke.py
+│   ├── test_scd_constraint_fix.py
+│   └── ...
+├── Attendance.py            # Main Streamlit app
+├── reset_db.py              # Database reset utility
+├── seed_complete_data.py    # Complete test data seeder
+├── seed_users.py            # Basic user seeder
+├── pyproject.toml           # Dependencies
+├── test.db                  # SQLite database
+├── AGENTS.md                # This file - AI development guide
+└── README.md                # User-facing documentation
 ```
+
+## Data Model
+
+### Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    User ||--o{ UserRole : has
+    User ||--o{ FactAttendance : attends
+    User ||--o{ ClassFeedback : provides
+    Role ||--o{ UserRole : assigned_to
+    ClassSchedule ||--o{ FactAttendance : has
+    ClassSchedule ||--o{ Curriculum : has_one
+    ClassSchedule ||--o{ ClassInstance : occurs_as
+    Curriculum ||--o{ Lesson : contains
+    Lesson ||--o{ ClassInstance : assigned_to
+    ClassInstance ||--o{ FactAttendance : contains
+    ClassInstance ||--o{ ClassFeedback : receives
+    GymLocation ||--o{ ClassSchedule : hosts
+    ClassType ||--o{ ClassSchedule : categorizes
+    Term ||--o{ TermTarget : defines
+    UserRole ||--o{ FactAttendance : recorded_as
+
+    User {
+        int id PK
+        string user_uuid
+        string first_name
+        string last_name
+        string email
+        string password_hash
+        string rank
+        date last_graded_date
+        text comments
+        text nicknames
+        string profile_image_url
+        boolean is_current
+        datetime effective_date
+        datetime end_date
+        datetime created_date
+        datetime updated_date
+    }
+
+    Role {
+        int id PK
+        string name UK
+        text description
+    }
+
+    UserRole {
+        int id PK
+        string user_uuid FK
+        int role_id FK
+        boolean is_current
+        datetime effective_date
+        datetime end_date
+        datetime created_date
+        datetime updated_date
+    }
+
+    ClassSchedule {
+        int id PK
+        string class_uuid
+        string class_name
+        string day
+        string time
+        text description
+        float points
+        int gym_id FK
+        int class_type_id FK
+        boolean is_current
+        datetime effective_date
+        datetime end_date
+        datetime created_date
+    }
+
+    ClassInstance {
+        int id PK
+        int class_id FK
+        date class_date
+        string teacher_uuid FK
+        int lesson_id FK
+        datetime created_at
+        datetime updated_at
+    }
+
+    Curriculum {
+        int id PK
+        int class_id FK
+        string name
+        text description
+        datetime created_at
+        datetime updated_at
+    }
+
+    Lesson {
+        int id PK
+        int curriculum_id FK
+        string title
+        text description
+        string lesson_plan_url
+        string video_folder_url
+        datetime created_at
+        datetime updated_at
+    }
+
+    FactAttendance {
+        int id PK
+        string user_uuid FK
+        int class_id FK
+        int class_instance_id FK
+        string teacher_uuid FK
+        int user_role_id FK
+        date attendance_date
+        datetime created_at
+    }
+
+    ClassFeedback {
+        int id PK
+        string user_uuid FK
+        int attendance_id FK
+        int class_instance_id FK
+        string rating
+        text comment
+        datetime created_at
+        datetime updated_at
+    }
+
+    GymLocation {
+        int id PK
+        string name UK
+        string address
+    }
+
+    ClassType {
+        int id PK
+        string name UK
+    }
+
+    Term {
+        int id PK
+        string term_name UK
+        date start_date
+        date end_date
+        datetime created_at
+    }
+
+    TermTarget {
+        int id PK
+        int term_id FK
+        string rank
+        float target
+    }
+```
+
+### Key Constraints
+- **User**: Composite unique constraint on (user_uuid, is_current) for SCD Type 2 versioning
+- **FactAttendance**: Unique constraint on (user_uuid, class_id, attendance_date)
+- **ClassInstance**: Unique constraint on (class_id, class_date)
+- **Curriculum**: Unique constraint on class_id (one curriculum per class)
+- **ClassFeedback**: Unique constraint on attendance_id (one feedback per attendance)
 
 ## Code Style Guidelines
 
@@ -274,6 +456,9 @@ db.query(models.User).filter(models.User.is_current == True).all()
 8. **TermTarget** - Performance targets per rank per term
 9. **GymLocation** - Training locations
 10. **ClassType** - Class categories (Gi, No-Gi, etc.)
+11. **Curriculum** - Collection of lessons for a class
+12. **Lesson** - Reusable lesson content (title, description, URLs)
+13. **ClassFeedback** - Student feedback for attended classes
 
 ### Role System Architecture
 
@@ -447,11 +632,7 @@ class ClassInstance(Base):
     class_id = Integer (FK → classes.id, NOT NULL, Indexed)
     class_date = Date (NOT NULL, Indexed)
     teacher_uuid = String (FK → users.user_uuid, Nullable)
-    
-    # Lesson fields (all optional)
-    lesson_title = String(200, Nullable)
-    lesson_plan_url = String(500, Nullable)  # Validated as URL
-    video_folder_url = String(500, Nullable)  # Validated as URL
+    lesson_id = Integer (FK → lessons.id, Nullable, Indexed)
     
     created_at = DateTime
     updated_at = DateTime
@@ -994,13 +1175,62 @@ DELETE /lessons/{id}                   # Delete lesson
 - `tests/test_lessons.py`: 16 tests covering lesson CRUD operations
 - `tests/test_curriculum_integration.py`: 8 integration tests for complete workflow
 
+### Photo Upload Architecture
+
+**Overview:** The application integrates with Cloudinary for profile photo storage, supporting upload, update, and deletion operations with SCD Type 2 versioning.
+
+**Key Features:**
+- Cloud-based photo storage via Cloudinary
+- Support for file upload and camera capture
+- Automatic image processing (resizing, format conversion)
+- SCD Type 2 versioning for photo updates
+- Photo deletion with Cloudinary cleanup
+
+**Database Schema:**
+
+```python
+class User(Base):
+    # ... other fields ...
+    profile_image_url = Column(String(500), nullable=True)
+    # Composite constraint allows SCD versioning
+    __table_args__ = (
+        UniqueConstraint("user_uuid", "is_current", name="uix_user_current"),
+    )
+```
+
+**API Endpoints:**
+
+```
+POST /users/{user_uuid}/photo    # Upload/update photo
+DELETE /users/{user_uuid}/photo  # Delete photo
+```
+
+**Frontend Integration:**
+
+1. **Attendance Page (`Attendance.py`):**
+   - Photo upload during user creation
+   - File upload or camera capture options
+   - Preview before submission
+
+2. **Settings Page (`pages/3_Settings.py`):**
+   - Photo management section per user
+   - Update existing photo
+   - Delete photo
+   - Preview current and new photos
+
+**Implementation Notes:**
+- Photos stored in Cloudinary with user UUID in path
+- Old photos deleted from Cloudinary when updated
+- SCD Type 2 versioning creates new user record on photo update
+- Composite unique constraint (user_uuid, is_current) enables versioning
+
 ### Key Constraints
 - `FactAttendance`: Unique constraint on (user_uuid, class_id, attendance_date)
 - `ClassInstance`: Unique constraint on (class_id, class_date)
 - `Curriculum.class_id`: Unique constraint (one curriculum per class)
-- `User.email`: Indexed but not unique (due to versioning)
-- `User.user_uuid`: Unique identifier for user identity
-- `ClassSchedule.class_uuid`: Unique identifier for class identity
+- `User`: Composite unique constraint on (user_uuid, is_current) for SCD versioning
+- `User.user_uuid`: Stable identifier for user identity
+- `ClassSchedule.class_uuid`: Stable identifier for class identity
 
 ## Teacher Authentication & Feedback Analytics Feature
 
@@ -1102,138 +1332,6 @@ GET    /feedback/teacher/{uuid}                     # Teacher's feedback (anonym
 GET    /feedback/admin/comprehensive-stats          # All feedback (admin view)
 ```
 
-**Request/Response Examples:**
-
-```python
-# Student Login
-POST /auth/login
-Body: {
-  "email": "student@ckb.com",
-  "password": "student123"
-}
-Response: {
-  "id": 1,
-  "user_uuid": "...",
-  "first_name": "Mike",
-  "last_name": "Student",
-  "email": "student@ckb.com",
-  "rank": "Blue Belt",
-  "profile_image_url": null,
-  "is_current": true,
-  ...
-}
-
-# Teacher Login
-POST /auth/teacher-login
-Body: username=teacher@ckb.com&password=teacher123 (form data)
-Response: {
-  "access_token": "eyJ...",
-  "token_type": "bearer",
-  "user_info": {
-    "user_uuid": "...",
-    "first_name": "John",
-    "last_name": "Instructor",
-    ...
-  }
-}
-
-# Session Verification
-POST /auth/verify-session
-Body: {"token": "eyJ..."}
-Response: {
-  "status": "ok",
-  "new_token": "eyJ...",
-  "user_uuid": "..."
-}
-
-# Set/Update Password
-POST /auth/set-password
-Body: {
-  "user_uuid": "user-uuid-here",
-  "password": "newpassword123"
-}
-Response: {
-  "message": "Password set successfully",
-  "user_uuid": "user-uuid-here"
-}
-
-# Check Password Status
-GET /auth/check-password/{user_uuid}
-Response: {
-  "user_uuid": "user-uuid-here",
-  "has_password": true
-}
-
-# Remove Password
-DELETE /auth/remove-password/{user_uuid}
-Response: {
-  "message": "Password removed successfully",
-  "user_uuid": "user-uuid-here"
-}
-
-# Create Feedback (Student)
-POST /feedback/
-Body: {
-  "attendance_id": 123,
-  "rating": "thumbs_up",
-  "comment": "Great class, learned a lot!"
-}
-Response: {
-  "id": 1,
-  "user_uuid": "user-uuid",
-  "attendance_id": 123,
-  "class_instance_id": 45,
-  "rating": "thumbs_up",
-  "comment": "Great class, learned a lot!",
-  "created_at": "2026-02-06T10:30:00",
-  "class_date": "2026-02-06",
-  "class_name": "Fundamentals 1",
-  "lesson_title": "Guard Passing"
-}
-
-# Get User's Feedback (Student)
-GET /feedback/user/{user_uuid}
-Response: [
-  {
-    "id": 1,
-    "attendance_id": 123,
-    "rating": "thumbs_up",
-    "comment": "Great class!",
-    "class_date": "2026-02-06",
-    "class_name": "Fundamentals 1",
-    "lesson_title": "Guard Passing"
-  }
-]
-
-# Teacher Feedback (Anonymous)
-GET /feedback/teacher/{teacher_uuid}
-Response: [
-  {
-    "id": 1,
-    "rating": "thumbs_up",
-    "comment": "Great class!",
-    "class_date": "2026-02-06",
-    "class_name": "Fundamentals 1",
-    "lesson_title": "Guard Passing",
-    "user_full_name": null,  # Anonymous
-    "teacher_name": null
-  }
-]
-
-# Admin Feedback (Full Names)
-GET /feedback/admin/comprehensive-stats
-Response: [
-  {
-    "rating": "thumbs_up",
-    "comment": "Great class!",
-    "class_date": "2026-02-06",
-    "class_name": "Fundamentals 1",
-    "student_name": "Mike Student",  # Full name visible
-    "teacher_name": "John Instructor"
-  }
-]
-```
-
 ### Frontend Pages Modified
 
 **1. Attendance.py (Main Page)**
@@ -1245,81 +1343,17 @@ Response: [
 - **Validation:** Frontend checks password match, minimum length
 - **API Call:** Includes password in POST /users/ request
 
-**2. pages/4_Teacher.py (Teacher Dashboard) - COMPLETE REWRITE**
-
-**Authentication Gate:**
-```python
-# Shows login form if not authenticated
-if "teacher_token" not in st.session_state or not verify_session():
-    # Login form with email/password
-    # Calls teacher_login(email, password)
-    st.stop()
-```
-
-**Tab 1: Class Roster**
-- Select class and date
-- Assign teacher (pre-selects logged-in teacher)
-- View student roster for selected class
-- **Existing functionality preserved**
-
-**Tab 2: Feedback (NEW)**
-- Fetch feedback via GET /feedback/teacher/{uuid}
-- Display: Date | Class | Lesson | Rating | Comment
-- **Student names anonymous** - Shows no names
-- Filters: Date range, Class, Rating
-- Metrics: Total, Positive, Negative counts
-
-**Sidebar:**
-- Shows logged-in teacher name
-- Logout button
+**2. pages/4_Teacher.py (Teacher Dashboard)**
+- JWT authentication gate
+- Class roster with teacher assignment
+- Anonymous feedback view
+- Lesson information display
 
 **3. pages/3_Settings.py (Admin Settings)**
-- **Changes:** Added new "📊 Feedback Analytics" tab
-- **Access:** Admin-only (existing password protection)
-
-**New Tab Structure:**
-```python
-st.tabs([
-    "🥋 User Admin",
-    "📅 Class Schedule",
-    "🏢 Gyms & Types",
-    "🗓️ Terms",
-    "🎯 Targets",
-    "📚 Lessons",
-    "🔐 Student Passwords",
-    "📊 Feedback Analytics"  # NEW
-])
-```
-
-**Feedback Analytics Tab Components:**
-
-1. **Metrics Row** (4 columns):
-   - Total Feedback (count)
-   - Positive % (thumbs_up percentage)
-   - Most Active Student (by feedback count)
-   - Avg Rating (percentage)
-
-2. **Filters** (expandable):
-   - Date Range (from/to date pickers)
-   - Classes (multi-select)
-   - Teachers (multi-select, includes "Unassigned")
-   - Rating (All/Positive/Negative)
-
-3. **Data Table**:
-   - Columns: Date | Class | Student | Teacher | Rating | Comment
-   - **Full student names visible** (admin view)
-   - Sortable, filterable
-
-4. **Charts** (4 visualizations):
-   - Feedback Over Time (line chart, grouped by rating)
-   - Feedback by Class (bar chart)
-   - Feedback by Teacher (bar chart)
-   - Rating Distribution (pie chart)
-   - Theme-aware (uses plotly_dark/plotly_white)
-
-5. **CSV Export**:
-   - Downloads filtered data
-   - Filename: `feedback_analytics_YYYYMMDD_HHMMSS.csv`
+- Feedback Analytics tab with charts and CSV export
+- Photo management section
+- Role management section
+- Password reset functionality
 
 ### Security Considerations
 
@@ -1351,138 +1385,22 @@ st.tabs([
 - Admin endpoint requires Settings page authentication
 - No student names returned to teacher endpoint
 
-### Testing & Verification
-
-**Manual Testing Guide:** See `TESTING.md` for comprehensive checklist
-
-**Key Test Scenarios:**
-1. User creation with password validation
-2. Teacher login/logout flow
-3. Session timeout after 5 minutes
-4. Feedback privacy (teacher vs admin views)
-5. Filter functionality in analytics
-6. CSV export with various filters
-7. Chart rendering in both themes
-
-**Seed Data:**
-Run `python seed_users.py` to create test accounts:
-- Admin: admin@ckb.com / admin123
-- Teacher: teacher@ckb.com / teacher123
-- Student: student@ckb.com / student123
-
 ### Configuration
 
 **Environment Variables:**
 ```bash
 # .env file (auto-generated if not exists)
 SECRET_KEY=<auto-generated-32-byte-key>
+CLOUDINARY_CLOUD_NAME=<cloudinary-cloud-name>
+CLOUDINARY_API_KEY=<cloudinary-api-key>
+CLOUDINARY_API_SECRET=<cloudinary-api-secret>
 ```
 
-**Dependencies Added:**
+**Dependencies:**
 ```toml
 python-jose[cryptography]  # JWT token management
+cloudinary                 # Photo upload service
 ```
-
-### Migration Notes
-
-**Existing Users Without Passwords:**
-- After feature deployment, existing users have `password_hash = NULL`
-- Options:
-  1. Admin sets passwords via Settings → Student Passwords tab
-  2. Users request password reset (if implemented)
-  3. Run database migration to set default passwords
-
-**Database Reset:**
-- Feature requires fresh database with passwords
-- Run `python reset_db.py` followed by `python seed_users.py`
-- Existing data will be lost
-
-### Error Handling
-
-**Common Errors:**
-
-1. **401 Unauthorized:**
-   - Invalid or expired token
-   - Incorrect email/password
-   - **User Action:** Re-login
-
-2. **403 Forbidden:**
-   - User lacks Teacher role
-   - **User Action:** Admin must assign Teacher role
-
-3. **Connection Failed:**
-   - Backend server not running
-   - **Admin Action:** Start uvicorn server
-
-4. **ModuleNotFoundError: 'jose':**
-   - Missing dependency
-   - **Admin Action:** `pip install python-jose[cryptography]`
-
-### Performance Considerations
-
-**JWT Token Verification:**
-- Every page interaction calls /auth/verify-session
-- Adds ~10-50ms overhead per request
-- Acceptable for small-medium deployments
-
-**Feedback Analytics:**
-- Fetches all feedback records on tab load
-- Filtering done client-side (pandas)
-- May slow down with 10,000+ feedback records
-- **Future Optimization:** Server-side pagination
-
-**Chart Rendering:**
-- Plotly charts load on-demand (tab activation)
-- 4 charts may cause lag on slower machines
-- **Future Optimization:** Lazy loading or caching
-
-### Future Enhancements
-
-**Potential Improvements:**
-1. Password reset functionality
-2. "Remember Me" option for longer sessions
-3. Multi-factor authentication (MFA)
-4. Role-based permissions (RBAC)
-5. Feedback notifications for teachers
-6. Email alerts on negative feedback
-7. Feedback analytics by date range comparison
-
-### Development Checklist
-
-When modifying this feature:
-- [ ] Update JWT secret rotation mechanism
-- [ ] Add rate limiting to prevent brute force
-- [ ] Implement session blacklist for logout
-- [ ] Add audit logging for authentication events
-- [ ] Write automated tests for auth flow
-- [ ] Document API with OpenAPI schema
-
-### Files Modified
-
-**Backend (6 files):**
-- `app/auth.py` - JWT token management functions
-- `app/routers/auth.py` - Teacher login and session endpoints
-- `app/routers/feedback.py` - Teacher and admin feedback endpoints
-- `app/schemas.py` - Added 4 new schemas (TeacherLoginResponse, etc.)
-- `app/main.py` - Included auth and feedback routers
-- `app/routers/users.py` - Made password required
-
-**Frontend (3 files):**
-- `Attendance.py` - Added password fields to user form
-- `pages/4_Teacher.py` - Complete rewrite with authentication
-- `pages/3_Settings.py` - Added Feedback Analytics tab
-
-**Utilities:**
-- `seed_users.py` - Script to create test accounts with passwords
-- `TESTING.md` - Comprehensive testing guide
-
-### Related Documentation
-
-- **TESTING.md:** Step-by-step manual testing guide
-- **safety.md:** Implementation tracking and progress
-- **API Docs:** http://127.0.0.1:8000/docs (when server running)
-
----
 
 ## Common Pitfalls
 
@@ -1491,6 +1409,7 @@ When modifying this feature:
 3. **Naive datetimes** - Always use `datetime.now(timezone.utc)`
 4. **Pydantic v1 patterns** - This project uses Pydantic v2 (`field_validator` not `@validator`)
 5. **Not preserving old data** - When creating new SCD versions, copy fields that shouldn't change
+6. **Photo upload constraint** - User model uses composite unique constraint (user_uuid, is_current) to support SCD versioning
 
 ## API Conventions
 
@@ -1510,309 +1429,11 @@ When modifying this feature:
 5. **Test** - Write tests in `tests/` and run with `pytest`
 6. **Verify** - Test via UI and run full test suite
 
-## UI Styling Guidelines
+## Related Documentation
 
-### Theme System
-The application uses a hybrid light/dark theme system with dynamic CSS loading and glassmorphism design.
+- **README.md:** User-facing project documentation
+- **API Docs:** http://127.0.0.1:8000/docs (when server running)
 
-#### Theme Architecture
-- **Main Stylesheet**: `assets/style.css` - Component styles and theme-agnostic variables
-- **Dark Theme**: `assets/dark-theme.css` - Dark mode color palette (default)
-- **Light Theme**: `assets/light-theme.css` - Light mode color palette
-- **Streamlit Config**: `.streamlit/config.toml` - Base theme settings
+---
 
-#### Brand Colors
-- **Primary (CKB Red)**: `#c91a2b` - Used for CTAs, accents, and branding
-- **Secondary (Blue)**: `#2196F3` - Used for secondary actions and info
-- **Success (Green)**: `#4CAF50` - Used for form submissions and success states
-- **Font**: Inter (Google Fonts) - Modern, clean sans-serif
-
-#### Theme Toggle Implementation
-Each Streamlit page must include theme support:
-
-**Main Page (Attendance.py):**
-```python
-from pathlib import Path
-
-# Initialize theme in session state
-if "theme" not in st.session_state:
-    st.session_state.theme = "dark"
-
-# Function to load CSS files
-def load_css():
-    """Load custom CSS files for styling"""
-    css_files = [
-        "assets/style.css",
-        "assets/dark-theme.css" if st.session_state.get("theme", "dark") == "dark" 
-        else "assets/light-theme.css",
-    ]
-    
-    css_content = ""
-    for css_file in css_files:
-        css_path = Path(__file__).parent / css_file
-        if css_path.exists():
-            with open(css_path) as f:
-                css_content += f.read()
-    
-    # Apply theme data attribute to root
-    theme = st.session_state.get("theme", "dark")
-    css_content = f"""
-    <style>
-    :root {{
-        data-theme: "{theme}";
-    }}
-    {css_content}
-    </style>
-    """
-    
-    st.markdown(css_content, unsafe_allow_html=True)
-
-# Load CSS
-load_css()
-
-# Theme toggle in sidebar (main page only)
-with st.sidebar:
-    current_theme = st.session_state.get("theme", "dark")
-    if st.button("🌙" if current_theme == "dark" else "☀️", key="theme_toggle"):
-        st.session_state.theme = "light" if current_theme == "dark" else "dark"
-        st.rerun()
-```
-
-**Subpages (pages/2_Analytics.py, pages/3_Settings.py):**
-```python
-# For pages in pages/ directory, adjust path by going up one level
-css_path = Path(__file__).parent.parent / css_file
-```
-
-### CSS Variable System
-Use CSS variables defined in `assets/style.css` for consistent theming:
-
-#### Spacing
-- `--spacing-xs`: 4px
-- `--spacing-sm`: 8px
-- `--spacing-md`: 16px
-- `--spacing-lg`: 24px
-- `--spacing-xl`: 32px
-- `--spacing-2xl`: 48px
-
-#### Border Radius
-- `--radius-sm`: 4px
-- `--radius-md`: 8px
-- `--radius-lg`: 12px
-- `--radius-xl`: 16px
-- `--radius-full`: 9999px
-
-#### Transitions
-- `--transition-fast`: 150ms (hover effects)
-- `--transition-base`: 250ms (standard animations)
-- `--transition-slow`: 350ms (page transitions)
-
-#### Theme-Specific Colors
-Colors are defined per theme and automatically applied via CSS variables:
-- `--primary-color`, `--secondary-color`, `--success-color`
-- `--bg-primary`, `--bg-secondary`, `--bg-tertiary`
-- `--text-primary`, `--text-secondary`, `--text-tertiary`
-- `--border-color`, `--border-hover`
-- `--card-background`, `--card-border`, `--card-hover-background`
-- `--input-background`, `--input-border`, `--input-focus-ring`
-
-### Component Styling Guidelines
-
-#### Buttons
-Streamlit buttons automatically styled with these variants:
-
-**Primary Button (Red)** - Use for main CTAs:
-```python
-# Styled with red gradient (#c91a2b → #a01523)
-# Hover: Lifts up, enhanced glow effect
-# Click: Ripple animation
-```
-
-**Secondary Button (Blue)** - Use for alternative actions:
-```python
-# Styled with blue gradient (#2196F3 → #1976D2)
-```
-
-**Form Submit Button (Green)** - Automatic for form submissions:
-```python
-with st.form("example_form"):
-    # ... form fields
-    st.form_submit_button("Submit")  # Green gradient (#4CAF50 → #388E3C)
-```
-
-**Default Buttons** - Theme-aware styling:
-```python
-st.button("Click Me")  # Uses theme background/border colors
-```
-
-**Button Effects:**
-- Hover: `translateY(-2px)` lift effect
-- Click: Ripple animation (expanding circle)
-- All: `var(--transition-fast)` smooth transitions
-
-#### Form Inputs
-All input fields are automatically styled:
-- **Background**: Glassmorphism effect with theme colors
-- **Border**: 2px solid, theme-aware
-- **Focus State**: Primary color border + 3px focus ring
-- **Transition**: Smooth border/shadow transitions
-
-```python
-# All these get automatic styling:
-st.text_input("Name")
-st.text_area("Comments")
-st.selectbox("Rank", options)
-st.date_input("Date")
-st.file_uploader("Upload")
-```
-
-#### Cards & Containers
-Metric cards and containers have glassmorphism effects:
-```python
-st.metric("Total Points", "150")  # Auto-styled with glass background
-```
-
-**Card Effects:**
-- Background: Semi-transparent with backdrop blur
-- Hover: Enhanced shadow + slight lift
-- Border: 1px solid with theme color
-
-#### Data Display
-
-**DataFrames:**
-```python
-st.dataframe(df)  # Auto-styled with:
-# - Header background with bold text
-# - Alternating row colors
-# - Hover highlight
-# - Rounded corners
-```
-
-**Plotly Charts:**
-Use the theme helper function for consistent chart styling:
-```python
-def get_chart_theme():
-    """Get Plotly template based on current theme"""
-    theme = st.session_state.get("theme", "dark")
-    if theme == "dark":
-        return {
-            "template": "plotly_dark",
-            "colors": ["#c91a2b", "#2196F3", "#4CAF50", "#FFA726", "#9C27B0"],
-            "paper_bgcolor": "rgba(25, 27, 31, 0.8)",
-            "plot_bgcolor": "rgba(15, 17, 21, 0.5)",
-            "font_color": "#FFFFFF"
-        }
-    else:
-        return {
-            "template": "plotly_white",
-            "colors": ["#c91a2b", "#1976D2", "#388E3C", "#F57C00", "#7B1FA2"],
-            "paper_bgcolor": "rgba(255, 255, 255, 0.9)",
-            "plot_bgcolor": "rgba(245, 245, 245, 0.5)",
-            "font_color": "#212121"
-        }
-
-# Apply to charts:
-theme = get_chart_theme()
-fig = px.bar(df, template=theme["template"], color_discrete_sequence=theme["colors"])
-```
-
-#### Alerts & Notifications
-
-**Streamlit Alerts** - Automatically styled with colored borders:
-```python
-st.success("Success message")  # Green left border
-st.warning("Warning message")  # Orange left border
-st.error("Error message")      # Red left border
-st.info("Info message")        # Blue left border
-```
-
-**Toast Notifications:**
-```python
-st.toast("Member checked in!", icon="✅")  # Slide-in animation from right
-```
-
-### Glassmorphism Effects
-The UI uses glassmorphism (frosted glass effect) extensively:
-- **Sidebar**: Semi-transparent with 16px backdrop blur
-- **Cards**: Glass background with border
-- **Containers**: Layered transparency for depth
-
-Elements with glassmorphism automatically have:
-- `backdrop-filter: blur(16px)`
-- Semi-transparent background (rgba)
-- 1px border with theme color
-- Smooth transitions on hover
-
-### Animation Guidelines
-
-**Built-in Animations:**
-- **fadeIn**: Page content on load (350ms)
-- **slideInRight**: Toast notifications (250ms)
-- **scaleIn**: Modal/popup appearances
-- **pulse**: Loading states
-
-**Hover Effects:**
-- Buttons/Cards: Lift up 2px
-- Interactive elements: Enhanced shadow
-- All: Smooth cubic-bezier easing
-
-### Responsive Design
-Mobile breakpoint at 768px automatically adjusts:
-- Reduced spacing/padding
-- Smaller font sizes (h1: 3xl → 2xl)
-- Compact button sizing
-- Stack columns vertically
-
-No manual media queries needed - the CSS handles it.
-
-### Accessibility Standards
-
-**Color Contrast:**
-- Dark theme: White text on dark backgrounds (high contrast)
-- Light theme: Dark text on light backgrounds (high contrast)
-- All meet WCAG AA standard (4.5:1 for body text)
-
-**Interactive Elements:**
-- All buttons have visible focus states
-- Form inputs show focus ring
-- Hover states provide clear visual feedback
-
-**Semantic Colors:**
-- Red: Errors, danger, primary actions
-- Green: Success, completion
-- Blue: Information, secondary actions
-- Orange: Warnings, caution
-
-### Adding New Streamlit Pages
-When creating new pages:
-
-1. **Copy CSS Loading Function** from existing pages
-2. **Adjust Path** if in subdirectory: `Path(__file__).parent.parent / css_file`
-3. **Initialize Theme State**: `if "theme" not in st.session_state: st.session_state.theme = "dark"`
-4. **Load CSS Early**: Call `load_css()` before any UI elements
-5. **Use Plotly Theme Helper**: For consistent chart styling
-
-### Modifying Styles
-To customize the UI:
-
-**Global Changes** → Edit `assets/style.css`:
-- Spacing, transitions, shadows
-- Component base styles
-- Animations
-
-**Theme Colors** → Edit theme files:
-- `assets/dark-theme.css` for dark mode colors
-- `assets/light-theme.css` for light mode colors
-
-**Never modify** `.streamlit/config.toml` colors directly - use CSS variables instead for theme switching to work.
-
-### Best Practices
-
-1. **Always use CSS variables** for colors/spacing instead of hardcoded values
-2. **Test both themes** when making style changes
-3. **Maintain glassmorphism** - use semi-transparent backgrounds with blur
-4. **Keep animations smooth** - use provided transition variables
-5. **Respect hover states** - all interactive elements should have visual feedback
-6. **Mobile-first mindset** - ensure layouts work on small screens
-7. **Consistent spacing** - use spacing variables, not arbitrary pixel values
-8. **Theme persistence** - session state ensures theme survives page navigation
+*Last Updated: February 11, 2026*

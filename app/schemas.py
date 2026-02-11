@@ -489,3 +489,16 @@ class ComprehensiveFeedbackStats(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ===== Photo Management Schema =====
+class UserPhotoResponse(BaseModel):
+    """Response schema for photo upload/update operations."""
+
+    message: str
+    user_uuid: str
+    photo_url: Optional[str]
+    thumbnail_url: Optional[str]
+
+    class Config:
+        from_attributes = True

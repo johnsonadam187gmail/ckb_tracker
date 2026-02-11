@@ -494,6 +494,165 @@ if check_password():
                                                 f"API URL: {BASE_URL}/auth/set-password"
                                             )
 
+                        # --- PHOTO MANAGEMENT SECTION ---
+                        st.divider()
+                        st.subheader("📸 Photo Management")
+                        st.caption("Update or remove the member's profile photo")
+
+                        # Display current photo
+                        col_photo, col_actions = st.columns([1, 2])
+
+                        with col_photo:
+                            if member.get("profile_image_url"):
+                                st.image(
+                                    member["profile_image_url"],
+                                    width=150,
+                                    caption="Current Photo",
+                                )
+                            else:
+                                st.info("No photo set")
+                                st.markdown("👤")
+
+                        with col_actions:
+                            # Photo update section
+                            st.caption("Upload new photo or take a picture")
+
+                            # Photo input method
+                            photo_method = st.radio(
+                                "Choose method:",
+                                ["Upload File", "Take Photo (Camera)"],
+                                key=f"photo_method_{member['user_uuid']}",
+                            )
+
+                            new_photo = None
+
+                            if photo_method == "Take Photo (Camera)":
+                                # Use button to activate camera
+                                if (
+                                    f"show_camera_{member['user_uuid']}"
+                                    not in st.session_state
+                                ):
+                                    st.session_state[
+                                        f"show_camera_{member['user_uuid']}"
+                                    ] = False
+
+                                if not st.session_state[
+                                    f"show_camera_{member['user_uuid']}"
+                                ]:
+                                    if st.button(
+                                        "📷 Open Camera",
+                                        key=f"open_cam_{member['user_uuid']}",
+                                    ):
+                                        st.session_state[
+                                            f"show_camera_{member['user_uuid']}"
+                                        ] = True
+                                        st.rerun()
+                                else:
+                                    new_photo = st.camera_input(
+                                        "Take a photo",
+                                        key=f"camera_{member['user_uuid']}",
+                                    )
+                                    if new_photo:
+                                        st.image(
+                                            new_photo, width=150, caption="Preview"
+                                        )
+                                    if st.button(
+                                        "❌ Cancel",
+                                        key=f"cancel_cam_{member['user_uuid']}",
+                                    ):
+                                        st.session_state[
+                                            f"show_camera_{member['user_uuid']}"
+                                        ] = False
+                                        st.rerun()
+                            else:
+                                new_photo = st.file_uploader(
+                                    "Choose photo",
+                                    type=["jpg", "jpeg", "png"],
+                                    key=f"file_{member['user_uuid']}",
+                                )
+                                # Clear camera state if switching to file
+                                if (
+                                    f"show_camera_{member['user_uuid']}"
+                                    in st.session_state
+                                ):
+                                    del st.session_state[
+                                        f"show_camera_{member['user_uuid']}"
+                                    ]
+
+                                # Preview
+                                if new_photo:
+                                    st.image(new_photo, width=150, caption="Preview")
+
+                            # Action buttons - always shown regardless of method
+                            col_update, col_delete = st.columns(2)
+
+                            with col_update:
+                                update_clicked = st.button(
+                                    "📤 Update Photo",
+                                    key=f"update_photo_{member['user_uuid']}",
+                                    use_container_width=True,
+                                )
+
+                            with col_delete:
+                                delete_clicked = st.button(
+                                    "🗑️ Delete Photo",
+                                    key=f"delete_photo_{member['user_uuid']}",
+                                    use_container_width=True,
+                                    type="secondary",
+                                )
+
+                            # Handle update
+                            if update_clicked:
+                                if new_photo:
+                                    try:
+                                        files = {
+                                            "file": (
+                                                new_photo.name,
+                                                new_photo.getvalue(),
+                                                new_photo.type,
+                                            )
+                                        }
+
+                                        response = requests.post(
+                                            f"{BASE_URL}/users/{member['user_uuid']}/photo",
+                                            files=files,
+                                        )
+
+                                        if response.status_code == 200:
+                                            result = response.json()
+                                            st.success("✅ Photo updated successfully!")
+                                            st.rerun()
+                                        else:
+                                            error_detail = response.json().get(
+                                                "detail", "Unknown error"
+                                            )
+                                            st.error(f"❌ Failed: {error_detail}")
+                                    except Exception as e:
+                                        st.error(f"⚠️ Upload error: {e}")
+                                else:
+                                    st.warning("Please select or capture a photo first")
+
+                            # Handle delete
+                            if delete_clicked:
+                                if not member.get("profile_image_url"):
+                                    st.warning("No photo to delete")
+                                else:
+                                    try:
+                                        response = requests.delete(
+                                            f"{BASE_URL}/users/{member['user_uuid']}/photo"
+                                        )
+
+                                        if response.status_code == 200:
+                                            st.success("✅ Photo deleted successfully!")
+                                            st.rerun()
+                                        else:
+                                            error_detail = response.json().get(
+                                                "detail", "Unknown error"
+                                            )
+                                            st.error(f"❌ Failed: {error_detail}")
+                                    except Exception as e:
+                                        st.error(f"⚠️ Delete error: {e}")
+
             else:
                 st.error(f"Error fetching users: {u_res.text}")
 

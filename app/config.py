@@ -31,6 +31,12 @@ class Settings:
     admin_username: Optional[str] = os.getenv("ADMIN_USERNAME")
     admin_password: Optional[str] = os.getenv("ADMIN_PASSWORD")
 
+    # Cloudinary Configuration
+    cloudinary_cloud_name: Optional[str] = os.getenv("CLOUDINARY_CLOUD_NAME")
+    cloudinary_api_key: Optional[str] = os.getenv("CLOUDINARY_API_KEY")
+    cloudinary_api_secret: Optional[str] = os.getenv("CLOUDINARY_API_SECRET")
+    cloudinary_folder: str = os.getenv("CLOUDINARY_FOLDER", "ckb_tracker/profiles")
+
     # Logging
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 

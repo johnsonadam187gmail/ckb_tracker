@@ -39,7 +39,7 @@ db = SessionLocal()
 
 try:
     print("=" * 60)
-    print("🌱 SEEDING COMPLETE TEST DATA")
+    print("[SEED] SEEDING COMPLETE TEST DATA")
     print("=" * 60)
 
     # Fetch roles
@@ -48,11 +48,11 @@ try:
     admin_role = db.query(Role).filter(Role.name == "Admin").first()
 
     if not all([student_role, teacher_role, admin_role]):
-        print("❌ Error: Roles not found. Run reset_db.py first!")
+        print("[ERROR] Error: Roles not found. Run reset_db.py first!")
         exit(1)
 
     # ===== 1. CREATE USERS =====
-    print("\n📋 Creating Users...")
+    print("\n[USERS] Creating Users...")
 
     # Admin User
     admin_uuid = str(uuid.uuid4())
@@ -81,7 +81,7 @@ try:
     )
     db.add(admin_user_role)
     db.commit()
-    print(f"   ✅ Admin: admin@ckb.com / admin123")
+    print(f"   [OK] Admin: admin@ckb.com / admin123")
 
     # Teacher User
     teacher_uuid = str(uuid.uuid4())
@@ -118,7 +118,7 @@ try:
     db.add(teacher_user_role_teacher)
     db.add(teacher_user_role_student)
     db.commit()
-    print(f"   ✅ Teacher: teacher@ckb.com / teacher123")
+    print(f"   [OK] Teacher: teacher@ckb.com / teacher123")
 
     # Student User
     student_uuid = str(uuid.uuid4())
@@ -147,7 +147,7 @@ try:
     )
     db.add(student_user_role)
     db.commit()
-    print(f"   ✅ Student: student@ckb.com / student123")
+    print(f"   [OK] Student: student@ckb.com / student123")
 
     # Additional Students for realistic data
     additional_students = []
@@ -187,11 +187,11 @@ try:
         db.commit()
         additional_students.append(student_uuid_new)
         print(
-            f"   ✅ {first} {last}: {first.lower()}.{last.lower()}@ckb.com / student123"
+            f"   [OK] {first} {last}: {first.lower()}.{last.lower()}@ckb.com / student123"
         )
 
     # ===== 2. CREATE GYM LOCATIONS =====
-    print("\n🏢 Creating Gym Locations...")
+    print("\n[GYMS] Creating Gym Locations...")
 
     gym_main = GymLocation(
         name="CKB Main Gym",
@@ -205,11 +205,11 @@ try:
     )
     db.add(gym_north)
     db.commit()
-    print(f"   ✅ Main Gym: {gym_main.name}")
-    print(f"   ✅ North Location: {gym_north.name}")
+    print(f"   [OK] Main Gym: {gym_main.name}")
+    print(f"   [OK] North Location: {gym_north.name}")
 
     # ===== 3. CREATE CLASS TYPES =====
-    print("\n🥋 Creating Class Types...")
+    print("\n[TYPES] Creating Class Types...")
 
     type_gi = ClassType(
         name="Gi",
@@ -226,12 +226,12 @@ try:
     )
     db.add(type_comp)
     db.commit()
-    print(f"   ✅ {type_gi.name}")
-    print(f"   ✅ {type_nogi.name}")
-    print(f"   ✅ {type_comp.name}")
+    print(f"   [OK] {type_gi.name}")
+    print(f"   [OK] {type_nogi.name}")
+    print(f"   [OK] {type_comp.name}")
 
     # ===== 4. CREATE CLASSES =====
-    print("\n📅 Creating Class Schedule...")
+    print("\n[CLASSES] Creating Class Schedule...")
 
     classes_data = [
         (
@@ -309,10 +309,10 @@ try:
         db.add(new_class)
         db.commit()
         created_classes.append(new_class)
-        print(f"   ✅ {name} - {day} {time}")
+        print(f"   [OK] {name} - {day} {time}")
 
     # ===== 5. CREATE TERM =====
-    print("\n🗓️ Creating Term...")
+    print("\n[TERM] Creating Term...")
 
     term_start = date.today() - timedelta(days=30)
     term_end = date.today() + timedelta(days=60)
@@ -325,10 +325,10 @@ try:
     )
     db.add(term)
     db.commit()
-    print(f"   ✅ {term.term_name} ({term_start} to {term_end})")
+    print(f"   [OK] {term.term_name} ({term_start} to {term_end})")
 
     # ===== 6. CREATE TERM TARGETS =====
-    print("\n🎯 Creating Term Targets...")
+    print("\n[TARGETS] Creating Term Targets...")
 
     targets_data = [
         ("White", 40.0),
@@ -345,11 +345,11 @@ try:
             target=target_val,
         )
         db.add(target_obj)
-        print(f"   ✅ {rank}: {target_val} points")
+        print(f"   [OK] {rank}: {target_val} points")
     db.commit()
 
     # ===== 7. CREATE CURRICULUM & LESSONS =====
-    print("\n📚 Creating Curriculum & Lessons...")
+    print("\n[CURRICULUM] Creating Curriculum & Lessons...")
 
     # Create curriculum for Fundamentals 1
     fundamentals_class = created_classes[0]  # Fundamentals 1
@@ -361,7 +361,7 @@ try:
     )
     db.add(curriculum)
     db.commit()
-    print(f"   ✅ Curriculum: {curriculum.name}")
+    print(f"   [OK] Curriculum: {curriculum.name}")
 
     # Create lessons
     lessons_data = [
@@ -398,10 +398,10 @@ try:
         db.add(lesson)
         db.commit()
         created_lessons.append(lesson)
-        print(f"   ✅ Lesson: {title}")
+        print(f"   [OK] Lesson: {title}")
 
     # ===== 8. CREATE ATTENDANCE & CLASS INSTANCES =====
-    print("\n✅ Creating Attendance Records & Class Instances...")
+    print("\n[OK] Creating Attendance Records & Class Instances...")
 
     all_student_uuids = [student_uuid] + additional_students
 
@@ -440,10 +440,10 @@ try:
                 db.commit()
                 attendance_records.append(attendance)
 
-    print(f"   ✅ Created {len(attendance_records)} attendance records")
+    print(f"   [OK] Created {len(attendance_records)} attendance records")
 
     # ===== 9. CREATE FEEDBACK =====
-    print("\n💬 Creating Feedback Entries...")
+    print("\n[FEEDBACK] Creating Feedback Entries...")
 
     feedback_comments_positive = [
         "Great class! Learned a lot about guard passing.",
@@ -480,14 +480,14 @@ try:
         db.commit()
         feedback_count += 1
 
-    print(f"   ✅ Created {feedback_count} feedback entries")
+    print(f"   [OK] Created {feedback_count} feedback entries")
 
     # ===== SUMMARY =====
     print("\n" + "=" * 60)
-    print("🎉 SEED DATA CREATION COMPLETE!")
+    print("[DONE] SEED DATA CREATION COMPLETE!")
     print("=" * 60)
 
-    print("\n📊 SUMMARY:")
+    print("\n[SUMMARY] SUMMARY:")
     print(
         f"   Users: {len(all_student_uuids) + 2} (1 admin, 1 teacher, {len(all_student_uuids)} students)"
     )
@@ -501,16 +501,16 @@ try:
     print(f"   Attendance Records: {len(attendance_records)}")
     print(f"   Feedback Entries: {feedback_count}")
 
-    print("\n🔑 TEST CREDENTIALS:")
+    print("\n[LOGIN] TEST CREDENTIALS:")
     print("   Admin:   admin@ckb.com   / admin123")
     print("   Teacher: teacher@ckb.com / teacher123")
     print("   Student: student@ckb.com / student123")
 
-    print("\n📝 ADDITIONAL STUDENTS:")
+    print("\n[STUDENTS] ADDITIONAL STUDENTS:")
     for first, last, _ in student_names:
         print(f"   {first} {last}: {first.lower()}.{last.lower()}@ckb.com / student123")
 
-    print("\n✨ You can now:")
+    print("\n[FEATURES] You can now:")
     print("   1. Login as teacher and view feedback (anonymous)")
     print("   2. Login as admin and view comprehensive analytics")
     print("   3. View attendance records on main page")
@@ -520,7 +520,7 @@ try:
     print("\n" + "=" * 60)
 
 except Exception as e:
-    print(f"\n❌ Error creating seed data: {e}")
+    print(f"\n[ERROR] Error creating seed data: {e}")
     import traceback
 
     traceback.print_exc()

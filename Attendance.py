@@ -51,6 +51,12 @@ def load_css():
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
 
+# Initialize photo capture state
+if "show_camera" not in st.session_state:
+    st.session_state.show_camera = False
+if "captured_photo" not in st.session_state:
+    st.session_state.captured_photo = None
+
 # Load CSS
 load_css()
 
@@ -79,6 +85,79 @@ with st.sidebar:
 
 # --- SIDEBAR: ADD NEW MEMBER ---
 st.sidebar.header("Add New Member")
+
+# Photo Capture Section (OUTSIDE the form to allow buttons)
+st.sidebar.markdown("### 📸 Profile Photo")
+st.sidebar.markdown("*Optional - Add a profile photo*")
+
+# Photo input method selection
+photo_method = st.sidebar.radio(
+    "Choose photo method:",
+    ["Take Photo (Camera)", "Upload File", "No Photo"],
+    key="photo_method",
+)
+
+uploaded_file = None
+
+if photo_method == "Take Photo (Camera)":
+    # Toggle button for camera
+    if not st.session_state.show_camera:
+        if st.sidebar.button(
+            "📷 Open Camera", key="open_camera", use_container_width=True
+        ):
+            st.session_state.show_camera = True
+            st.rerun()
+    else:
+        # Show the camera input
+        camera_photo = st.sidebar.camera_input(
+            "Take a photo",
+            help="Click the camera button to capture",
+            key="camera_input",
+        )
+        if camera_photo:
+            st.session_state.captured_photo = camera_photo
+            st.session_state.show_camera = False
+            st.rerun()
+
+        # Button to close camera without taking photo
+        if st.sidebar.button("❌ Cancel", key="cancel_camera"):
+            st.session_state.show_camera = False
+            st.rerun()
+
+    # Use captured photo if available
+    if st.session_state.captured_photo:
+        uploaded_file = st.session_state.captured_photo
+        st.sidebar.success("Photo captured!")
+
+elif photo_method == "Upload File":
+    # File upload
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload Profile Picture",
+        type=["jpg", "jpeg", "png"],
+        help="Supported formats: JPG, JPEG, PNG (Max 5MB)",
+    )
+    # Clear any previously captured photo
+    if st.session_state.captured_photo:
+        st.session_state.captured_photo = None
+
+else:
+    # No photo selected
+    uploaded_file = None
+    if st.session_state.captured_photo:
+        st.session_state.captured_photo = None
+
+# Preview the photo if captured/uploaded
+if uploaded_file:
+    st.sidebar.image(uploaded_file, width=200)
+    st.sidebar.caption("Photo ready for upload")
+    if st.sidebar.button("❌ Clear Photo", key="clear_photo"):
+        st.session_state.captured_photo = None
+        st.session_state.show_camera = False
+        st.rerun()
+
+st.sidebar.markdown("---")
+
+# Now the form (without camera inside it)
 with st.sidebar.form("add_user_form"):
     first_name = st.text_input("First Name")
     last_name = st.text_input("Last Name")
@@ -94,11 +173,6 @@ with st.sidebar.form("add_user_form"):
     rank = st.selectbox("Current Rank", ["White", "Blue", "Purple", "Brown", "Black"])
     last_grade = st.date_input("Last Grading Date", value=date.today())
     comments = st.text_area("Comments")
-
-    # Image Upload
-    uploaded_file = st.file_uploader(
-        "Upload Profile Picture", type=["jpg", "jpeg", "png"]
-    )
 
     submit_button = st.form_submit_button("Create Member")
 
@@ -128,10 +202,15 @@ if submit_button:
         # Handle the file upload part
         files = None
         if uploaded_file:
+            file_bytes = uploaded_file.getvalue()
+            # DEBUG: Uncomment below for debugging file uploads
+            # st.sidebar.write(f"DEBUG: File size: {len(file_bytes)} bytes")
+            # st.sidebar.write(f"DEBUG: File name: {uploaded_file.name}")
+            # st.sidebar.write(f"DEBUG: File type: {uploaded_file.type}")
             files = {
                 "file": (
                     uploaded_file.name,
-                    uploaded_file.getvalue(),
+                    file_bytes,
                     uploaded_file.type,
                 )
             }
@@ -142,6 +221,9 @@ if submit_button:
 
             if response.status_code == 200:
                 st.sidebar.success(f"✅ Successfully added {first_name}!")
+                # Clear the captured photo after successful creation
+                st.session_state.captured_photo = None
+                st.session_state.show_camera = False
                 st.rerun()
             else:
                 st.sidebar.error(
@@ -174,35 +256,65 @@ if selected_class_name:
     members = members_res.json()
 
     st.subheader("Class Attendance")
+
+    # DEBUG: Uncomment to check photo URLs
+    # with st.expander("🔍 Debug: Check Photo URLs", expanded=False):
+    #     if members:
+    #         for m in members[:3]:
+    #             img_url = m.get("profile_image_url", "NO URL")
+    #             st.write(f"**{m['first_name']}:** `{img_url}`")
+    #             if img_url and img_url != "NO URL":
+    #                 st.code(f"Full URL: {img_url}", language="text")
+    #     else:
+    #         st.write("No members found")
+
     for m in members:
-        col_name, col_btn = st.columns([3, 1])
-        col_name.write(f"**{m['first_name']} {m['last_name']}** ({m['rank']})")
+        # Create columns for photo, info, and button
+        cols = st.columns([1, 4, 1.5])
 
-        if col_btn.button("Check In", key=f"checkin_{m['user_uuid']}"):
-            payload = {
-                "user_uuid": m["user_uuid"],
-                "class_id": class_id,
-                "attendance_date": str(selected_date),
-            }
+        # Photo column
+        with cols[0]:
+            img_url = m.get("profile_image_url")
+            if img_url:
+                # Use simple st.image with error handling via columns
+                try:
+                    st.image(img_url, width=50)
+                except Exception:
+                    st.markdown("👤", help="Photo unavailable")
+            else:
+                st.markdown("👤", help="No photo")
 
-            try:
-                post_res = requests.post(f"{BASE_URL}/attendance/", data=payload)
+        # Name and info column
+        with cols[1]:
+            st.write(f"**{m['first_name']} {m['last_name']}** ({m['rank']})")
 
-                if post_res.status_code == 200:
-                    st.toast(
-                        f"✅ {m['first_name']} checked in successfully!", icon="🥋"
-                    )
+        # Button column
+        with cols[2]:
+            if st.button("Check In", key=f"checkin_{m['user_uuid']}"):
+                payload = {
+                    "user_uuid": m["user_uuid"],
+                    "class_id": class_id,
+                    "attendance_date": str(selected_date),
+                }
 
-                elif post_res.status_code == 400:
-                    # This catches the UniqueConstraint violation from the backend
-                    st.warning(
-                        f"⚠️ {m['first_name']} is already checked into this class."
-                    )
+                try:
+                    post_res = requests.post(f"{BASE_URL}/attendance/", data=payload)
 
-                else:
-                    st.error(
-                        f"Error: {post_res.json().get('detail', 'Unknown error occurred')}"
-                    )
+                    if post_res.status_code == 200:
+                        st.toast(
+                            f"✅ {m['first_name']} checked in successfully!", icon="🥋"
+                        )
 
-            except Exception as e:
-                st.error(f"Connection failed: {e}")
+                    elif post_res.status_code == 400:
+                        # This catches the UniqueConstraint violation from the backend
+                        st.warning(
+                            f"⚠️ {m['first_name']} is already checked into this class."
+                        )
+
+                    else:
+                        st.error(
+                            f"Error: {post_res.json().get('detail', 'Unknown error occurred')}"
+                        )
+
+                except Exception as e:
+                    st.error(f"Connection failed: {e}")
