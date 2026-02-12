@@ -17,26 +17,42 @@ class CloudinaryService:
     """Service for handling image uploads to Cloudinary."""
 
     def __init__(self):
-        """Initialize Cloudinary configuration."""
-        if not all(
+        """Initialize Cloudinary configuration (lazy)."""
+        self._initialized = False
+        self._credentials_available = False
+
+    def _ensure_initialized(self):
+        """Lazy initialization of Cloudinary configuration."""
+        if self._initialized:
+            return
+
+        self._credentials_available = all(
             [
                 settings.cloudinary_cloud_name,
                 settings.cloudinary_api_key,
                 settings.cloudinary_api_secret,
             ]
-        ):
+        )
+
+        if self._credentials_available:
+            cloudinary.config(
+                cloud_name=settings.cloudinary_cloud_name,
+                api_key=settings.cloudinary_api_key,
+                api_secret=settings.cloudinary_api_secret,
+                secure=True,
+            )
+
+        self._initialized = True
+
+    def _check_credentials(self):
+        """Check if credentials are available, raise error if not."""
+        self._ensure_initialized()
+        if not self._credentials_available:
             raise ValueError(
                 "Cloudinary credentials not configured. "
                 "Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, "
                 "and CLOUDINARY_API_SECRET environment variables."
             )
-
-        cloudinary.config(
-            cloud_name=settings.cloudinary_cloud_name,
-            api_key=settings.cloudinary_api_key,
-            api_secret=settings.cloudinary_api_secret,
-            secure=True,
-        )
 
     def _process_image(
         self,
@@ -154,6 +170,9 @@ class CloudinaryService:
             ValueError: If image validation fails
             Exception: If upload fails
         """
+        # Check credentials before proceeding
+        self._check_credentials()
+
         # Validate image
         self._validate_image(image_bytes)
 
@@ -225,6 +244,9 @@ class CloudinaryService:
         Returns:
             True if deletion was successful
         """
+        # Check credentials before proceeding
+        self._check_credentials()
+
         try:
             result = cloudinary.uploader.destroy(public_id)
             return result.get("result") == "ok"
