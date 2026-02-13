@@ -150,6 +150,7 @@ if check_password():
         tab_lessons,
         tab_passwords,
         tab_feedback,
+        tab_kiosk,
     ) = st.tabs(
         [
             "🥋 User Admin",
@@ -160,6 +161,7 @@ if check_password():
             "📚 Lessons",
             "🔐 Student Passwords",
             "📊 Feedback Analytics",
+            "📱 Kiosk Management",
         ]
     )
 
@@ -1779,6 +1781,106 @@ if check_password():
 
         except Exception as e:
             st.error(f"Error loading feedback analytics: {str(e)}")
+
+    # --- 9. KIOSK MANAGEMENT TAB ---
+    with tab_kiosk:
+        st.header("📱 Kiosk PIN Management")
+        st.markdown(
+            "Manage the PIN that students use to access the mat-side check-in kiosk. "
+            "The kiosk allows students to self check-in without individual login credentials."
+        )
+
+        st.info("Current default PIN: **1234** (change immediately for security)")
+
+        st.divider()
+
+        # Change PIN section
+        st.subheader("🔐 Change Kiosk PIN")
+        st.write("PIN must be 4-6 digits (numbers only)")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            current_pin = st.text_input(
+                "Current PIN",
+                type="password",
+                max_chars=6,
+                placeholder="Enter current PIN",
+            )
+
+        with col2:
+            new_pin = st.text_input(
+                "New PIN (4-6 digits)",
+                type="password",
+                max_chars=6,
+                placeholder="Enter new PIN",
+            )
+            confirm_pin = st.text_input(
+                "Confirm New PIN",
+                type="password",
+                max_chars=6,
+                placeholder="Confirm new PIN",
+            )
+
+        if st.button("Update PIN", type="primary"):
+            # Validation
+            if not current_pin or not new_pin or not confirm_pin:
+                st.error("Please fill in all PIN fields")
+            elif new_pin != confirm_pin:
+                st.error("New PINs do not match")
+            elif len(new_pin) < 4 or len(new_pin) > 6:
+                st.error("PIN must be 4-6 digits")
+            elif not new_pin.isdigit():
+                st.error("PIN must contain only numbers")
+            else:
+                try:
+                    response = requests.put(
+                        f"{BASE_URL}/kiosk/update-pin",
+                        json={
+                            "current_pin": current_pin,
+                            "new_pin": new_pin,
+                        },
+                        timeout=5,
+                    )
+
+                    if response.status_code == 200:
+                        st.success("✅ PIN updated successfully!")
+                        # Clear the form
+                        st.rerun()
+                    elif response.status_code == 401:
+                        st.error("❌ Current PIN is incorrect")
+                    else:
+                        error_detail = response.json().get("detail", "Unknown error")
+                        st.error(f"❌ Failed to update PIN: {error_detail}")
+
+                except Exception as e:
+                    st.error(f"⚠️ Error connecting to server: {str(e)}")
+
+        st.divider()
+
+        # Help section
+        st.subheader("ℹ️ About the Kiosk System")
+        st.markdown(
+            """
+            **How it works:**
+            1. Students enter the gym PIN on the tablet landing page
+            2. They search for their name and select themselves
+            3. They check in for the class (creates PENDING status)
+            4. Teacher confirms attendance via the Teacher Dashboard
+
+            **Security Notes:**
+            - Change the default PIN immediately
+            - Use a PIN that's easy to remember but not obvious
+            - The PIN is stored securely (hashed with Argon2)
+            - Kiosk sessions expire after 5 minutes of inactivity
+
+            **Reset PIN:**
+            If you forget the PIN, run the migration script to reset to default (1234):
+            ```
+            python migrate_mat_side_workflow.py
+            ```
+            """
+        )
 
 else:
     st.stop()  # Prevents the rest of the page from running

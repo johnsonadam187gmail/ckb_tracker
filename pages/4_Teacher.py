@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+import time
 from datetime import datetime, date
 from pathlib import Path
 
@@ -8,6 +9,110 @@ from pathlib import Path
 BASE_URL = "http://127.0.0.1:8000"
 
 st.set_page_config(page_title="Teacher Dashboard", layout="wide", page_icon="👨‍🏫")
+
+
+# --- HELPER FUNCTIONS FOR CONFIRM ATTENDANCE ---
+def confirm_single(attendance_id):
+    """Confirm single attendance record"""
+    try:
+        if "teacher_token" not in st.session_state:
+            st.error("❌ Not authenticated. Please login again.")
+            return
+
+        token = st.session_state.teacher_token
+        response = requests.post(
+            f"{BASE_URL}/attendance/{attendance_id}/confirm",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        if response.status_code == 200:
+            st.success("✅ Confirmed!")
+            time.sleep(0.5)
+            st.rerun()
+        elif response.status_code == 401:
+            error_detail = response.json().get("detail", "Unauthorized")
+            st.error(f"❌ Unauthorized: {error_detail}")
+            st.info("Please try logging out and back in.")
+        else:
+            error_detail = response.json().get("detail", "Unknown error")
+            st.error(f"❌ Error: {error_detail}")
+    except Exception as e:
+        st.error(f"❌ Connection error: {str(e)}")
+
+
+def delete_single(attendance_id):
+    """Delete single attendance record"""
+    try:
+        response = requests.delete(
+            f"{BASE_URL}/attendance/{attendance_id}/cancel",
+            params={"user_uuid": "teacher_override"},
+            timeout=5,
+        )
+        if response.status_code == 200:
+            st.success("Removed!")
+            time.sleep(0.5)
+            st.rerun()
+    except:
+        st.error("Error removing")
+
+
+def bulk_confirm(attendance_ids):
+    """Bulk confirm attendance records"""
+    try:
+        token = st.session_state.teacher_token
+        response = requests.post(
+            f"{BASE_URL}/attendance/bulk-confirm",
+            json={"attendance_ids": attendance_ids},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        if response.status_code == 200:
+            st.success(f"Confirmed {len(attendance_ids)} students!")
+            time.sleep(0.5)
+            st.rerun()
+    except:
+        st.error("Error in bulk confirm")
+
+
+def bulk_delete(attendance_ids):
+    """Bulk delete attendance records"""
+    # For bulk delete, we'd need a new endpoint, so just delete one by one
+    try:
+        for aid in attendance_ids:
+            requests.delete(
+                f"{BASE_URL}/attendance/{aid}/cancel",
+                params={"user_uuid": "teacher_override"},
+                timeout=5,
+            )
+        st.success(f"Removed {len(attendance_ids)} check-ins!")
+        time.sleep(0.5)
+        st.rerun()
+    except:
+        st.error("Error in bulk remove")
+
+
+def create_direct_attendance(user, class_obj, class_date):
+    """Teacher override - add student directly"""
+    try:
+        token = st.session_state.teacher_token
+        response = requests.post(
+            f"{BASE_URL}/attendance/direct",
+            json={
+                "user_uuid": user["user_uuid"],
+                "class_id": class_obj["id"],
+                "attendance_date": str(class_date),
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        if response.status_code == 200:
+            st.success(f"Added {user['first_name']}!")
+            time.sleep(0.5)
+            st.rerun()
+        else:
+            st.error("Error adding student")
+    except:
+        st.error("Connection error")
 
 
 # Function to load CSS files
@@ -144,10 +249,288 @@ with st.sidebar:
 
 
 # --- TABS ---
-tab1, tab2 = st.tabs(["📋 Class Roster", "💬 Feedback"])
+tab1, tab2, tab3 = st.tabs(["✅ Confirm Attendance", "📋 Class Roster", "💬 Feedback"])
 
-# --- TAB 1: CLASS ROSTER (existing functionality) ---
+# --- TAB 1: CONFIRM ATTENDANCE (NEW - Primary tab) ---
 with tab1:
+    st.header("Confirm Student Attendance")
+
+    # Class & Date Selection
+    col1, col2, col3 = st.columns([2, 2, 1])
+    with col1:
+        confirm_date = st.date_input("Date", value=datetime.now(), key="confirm_date")
+    with col2:
+        try:
+            classes = requests.get(f"{BASE_URL}/classes/").json()
+            confirm_class = st.selectbox(
+                "Class",
+                classes,
+                format_func=lambda x: x["class_name"],
+                key="confirm_class",
+            )
+        except:
+            st.error("Error loading classes")
+            st.stop()
+    with col3:
+        st.write("")  # Spacer
+        auto_refresh = st.checkbox(
+            "Auto-refresh (5s)", value=True, key="auto_refresh_checkbox"
+        )
+
+        # Manual refresh button
+        if st.button("🔄 Refresh Now", use_container_width=True):
+            st.session_state.last_pending_refresh = datetime.now().timestamp()
+            st.rerun()
+
+        # Auto-refresh logic
+        if auto_refresh:
+            # Check if we need to refresh (every 5 seconds)
+            current_time = datetime.now().timestamp()
+            last_refresh = st.session_state.get("last_pending_refresh", 0)
+
+            if current_time - last_refresh >= 5:  # Refresh every 5 seconds
+                st.session_state.last_pending_refresh = current_time
+                st.rerun()
+
+    st.markdown("---")
+
+    # Fetch ALL attendance for this class and date
+    try:
+        # Get class instance first
+        instance_response = requests.get(
+            f"{BASE_URL}/class-instances/by-date/",
+            params={"class_id": confirm_class["id"], "class_date": str(confirm_date)},
+            timeout=5,
+        )
+
+        attendance_records = []
+        class_instance_id = None
+
+        if instance_response.status_code == 200:
+            instance_data = instance_response.json()
+            class_instance_id = instance_data.get("id")
+
+            # Get all attendance for this class instance
+            if class_instance_id:
+                attendance_response = requests.get(
+                    f"{BASE_URL}/attendance/",
+                    params={"class_instance_id": class_instance_id},
+                    timeout=5,
+                )
+                if attendance_response.status_code == 200:
+                    attendance_records = attendance_response.json()
+
+        # If no instance exists or no records found, try alternative query
+        if not attendance_records:
+            # Try getting by class and date directly
+            attendance_response = requests.get(
+                f"{BASE_URL}/attendance/class/{confirm_class['id']}",
+                params={"class_date": str(confirm_date)},
+                timeout=5,
+            )
+            if attendance_response.status_code == 200:
+                attendance_records = attendance_response.json()
+
+        # Separate pending and confirmed
+        pending_records = [
+            r for r in attendance_records if r.get("status") == "pending"
+        ]
+        confirmed_records = [
+            r for r in attendance_records if r.get("status") == "confirmed"
+        ]
+
+        # Summary metrics
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            st.metric("Total Students", len(attendance_records))
+        with col_m2:
+            st.metric("⏳ Pending", len(pending_records))
+        with col_m3:
+            st.metric("✅ Confirmed", len(confirmed_records))
+
+        st.markdown("---")
+
+        if not attendance_records:
+            st.info("📭 No students have checked in for this class and date yet.")
+            st.caption("Students who check in will appear here for confirmation.")
+        else:
+            # Show all students with their status
+            st.subheader(f"📋 Student List ({len(attendance_records)} total)")
+
+            # Table header
+            header_cols = st.columns([0.5, 2.5, 1.5, 1.5, 2])
+            with header_cols[0]:
+                st.write("**Select**")
+            with header_cols[1]:
+                st.write("**Student**")
+            with header_cols[2]:
+                st.write("**Time**")
+            with header_cols[3]:
+                st.write("**Status**")
+            with header_cols[4]:
+                st.write("**Action**")
+
+            st.markdown("---")
+
+            selected_pending_ids = []
+
+            for record in attendance_records:
+                is_pending = record.get("status") == "pending"
+                is_confirmed = record.get("status") == "confirmed"
+
+                row_cols = st.columns([0.5, 2.5, 1.5, 1.5, 2])
+
+                with row_cols[0]:
+                    if is_pending:
+                        is_selected = st.checkbox(
+                            "",
+                            key=f"select_{record['id']}",
+                            label_visibility="collapsed",
+                        )
+                        if is_selected:
+                            selected_pending_ids.append(record["id"])
+                    else:
+                        st.write("✓")
+
+                with row_cols[1]:
+                    student_name = f"{record.get('first_name', '')} {record.get('last_name', '')}".strip()
+                    if not student_name:
+                        student_name = record.get("user_name", "Unknown")
+
+                    cols_student = st.columns([1, 3])
+                    with cols_student[0]:
+                        img_url = record.get("profile_image_url") or record.get(
+                            "user", {}
+                        ).get("profile_image_url")
+                        if img_url:
+                            st.image(img_url, width=40)
+                        else:
+                            st.write("👤")
+                    with cols_student[1]:
+                        st.write(f"**{student_name}**")
+
+                with row_cols[2]:
+                    check_in_time = record.get("created_at") or record.get(
+                        "check_in_time"
+                    )
+                    if check_in_time:
+                        try:
+                            from datetime import datetime as dt
+
+                            time_obj = dt.fromisoformat(
+                                str(check_in_time).replace("Z", "+00:00")
+                            )
+                            st.write(f"🕐 {time_obj.strftime('%H:%M')}")
+                        except:
+                            st.write("🕐 --:--")
+                    else:
+                        st.write("🕐 --:--")
+
+                with row_cols[3]:
+                    if is_pending:
+                        st.warning("⏳ Pending")
+                    elif is_confirmed:
+                        st.success("✅ Confirmed")
+                    else:
+                        st.info(f"ℹ️ {record.get('status', 'Unknown')}")
+
+                with row_cols[4]:
+                    if is_pending:
+                        action_cols = st.columns(2)
+                        with action_cols[0]:
+                            if st.button(
+                                "✓ Confirm",
+                                key=f"confirm_btn_{record['id']}",
+                                type="primary",
+                                use_container_width=True,
+                            ):
+                                confirm_single(record["id"])
+                        with action_cols[1]:
+                            if st.button(
+                                "✕ Remove",
+                                key=f"delete_btn_{record['id']}",
+                                type="secondary",
+                                use_container_width=True,
+                            ):
+                                delete_single(record["id"])
+                    else:
+                        st.caption("Already confirmed")
+
+            # Bulk actions section
+            if selected_pending_ids:
+                st.markdown("---")
+                st.subheader("Bulk Actions")
+                st.write(f"**{len(selected_pending_ids)} students selected**")
+
+                bulk_cols = st.columns(2)
+                with bulk_cols[0]:
+                    if st.button(
+                        f"✅ Confirm All Selected ({len(selected_pending_ids)})",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        bulk_confirm(selected_pending_ids)
+
+                with bulk_cols[1]:
+                    if st.button(
+                        "🗑️ Remove All Selected",
+                        type="secondary",
+                        use_container_width=True,
+                    ):
+                        bulk_delete(selected_pending_ids)
+
+            # "Confirm All Pending" button at the bottom
+            if pending_records:
+                st.markdown("---")
+                if st.button(
+                    f"✅ CONFIRM ALL PENDING ({len(pending_records)} students)",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    pending_ids = [r["id"] for r in pending_records]
+                    bulk_confirm(pending_ids)
+
+        # Add student override section (always visible)
+        st.markdown("---")
+        with st.expander("➕ Add Student Manually (Bypass Check-in)"):
+            st.write("Add a student directly without requiring them to check in first:")
+
+            try:
+                users_response = requests.get(f"{BASE_URL}/users/").json()
+                users = [u for u in users_response if u.get("is_current")]
+
+                # Filter out already checked-in students
+                checked_in_uuids = {r.get("user_uuid") for r in attendance_records}
+                available_users = [
+                    u for u in users if u["user_uuid"] not in checked_in_uuids
+                ]
+
+                if available_users:
+                    selected_user = st.selectbox(
+                        "Select Student to Add",
+                        available_users,
+                        format_func=lambda x: f"{x['first_name']} {x['last_name']} ({x['rank']})",
+                    )
+
+                    if st.button(
+                        "Add & Confirm", type="primary", use_container_width=True
+                    ):
+                        create_direct_attendance(
+                            selected_user, confirm_class, confirm_date
+                        )
+                else:
+                    st.info("All students are already checked in for this class!")
+
+            except Exception as e:
+                st.error("Error loading users")
+
+    except Exception as e:
+        st.error(f"Error loading attendance: {str(e)}")
+        st.code(f"Class ID: {confirm_class['id']}, Date: {confirm_date}")
+
+
+# --- TAB 2: CLASS ROSTER (existing functionality) ---
+with tab2:
     st.header("Class Roster & Assignment")
 
     col1, col2, col3, col4 = st.columns([1, 2, 2, 1.5])
@@ -319,8 +702,8 @@ with tab1:
             st.error(f"⚠️ Error fetching attendance: {str(e)}")
 
 
-# --- TAB 2: FEEDBACK ---
-with tab2:
+# --- TAB 3: FEEDBACK ---
+with tab3:
     st.header("💬 Student Feedback")
     st.markdown(
         "Feedback from students for classes you taught (student names are anonymous)"

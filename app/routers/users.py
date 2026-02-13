@@ -170,6 +170,37 @@ def get_users(db: Session = Depends(get_db)):
     return db.query(models.User).filter(models.User.is_current == True).all()
 
 
+@router.get("/search", response_model=List[schemas.UserSearchResponse])
+def search_users(query: str, db: Session = Depends(get_db)):
+    """Search users by first name, last name, or email.
+
+    Returns minimal info for disambiguation.
+    Minimum 2 characters required.
+    Only searches current users (is_current=True).
+    """
+    if len(query) < 2:
+        raise HTTPException(
+            status_code=400, detail="Query must be at least 2 characters"
+        )
+
+    # Case-insensitive search in first_name, last_name, or email
+    search_pattern = f"%{query}%"
+    users = (
+        db.query(models.User)
+        .filter(
+            models.User.is_current == True,
+            (
+                models.User.first_name.ilike(search_pattern)
+                | models.User.last_name.ilike(search_pattern)
+                | models.User.email.ilike(search_pattern)
+            ),
+        )
+        .all()
+    )
+
+    return users
+
+
 @router.put("/{user_uuid}", response_model=schemas.UserResponse)
 def update_user(
     user_uuid: str,

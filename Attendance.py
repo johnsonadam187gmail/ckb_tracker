@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import date, datetime
+import time
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 # The URL where your FastAPI server is running
@@ -60,6 +61,288 @@ if "captured_photo" not in st.session_state:
 # Load CSS
 load_css()
 
+
+# ===== KIOSK MODE =====
+def render_kiosk_mode():
+    """Student self check-in interface (kiosk mode)"""
+
+    # Check for timeout
+    if st.session_state.get("kiosk_expires"):
+        time_remaining = int(st.session_state.kiosk_expires - time.time())
+        if time_remaining <= 0:
+            st.session_state.pop("kiosk_mode", None)
+            st.session_state.pop("kiosk_expires", None)
+            st.session_state.pop("current_student", None)
+            st.session_state.pop("selected_user", None)
+            st.switch_page("pages/1_Landing.py")
+
+    # Header with timeout
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.title("📝 Student Check-In")
+    with col2:
+        time_remaining = int(st.session_state.kiosk_expires - time.time())
+        if time_remaining < 60:
+            st.error(f"⏰ Expires in {time_remaining}s")
+        else:
+            st.info(f"⏰ {time_remaining // 60}m remaining")
+
+    st.markdown("---")
+
+    # Class & Date Selection
+    col1, col2 = st.columns(2)
+    with col1:
+        selected_date = st.date_input("Date", value=date.today(), key="kiosk_date")
+    with col2:
+        try:
+            classes_response = requests.get(f"{BASE_URL}/classes/", timeout=5)
+            classes = classes_response.json()
+            selected_class = st.selectbox(
+                "Select Class",
+                classes,
+                format_func=lambda x: x["class_name"],
+                key="kiosk_class",
+            )
+        except:
+            st.error("Error loading classes")
+            return
+
+    # Show search interface or confirmation
+    if "current_student" in st.session_state:
+        show_check_in_confirmation(selected_class, selected_date)
+    elif "selected_user" in st.session_state:
+        show_user_selection(selected_class, selected_date)
+    else:
+        show_user_search(selected_class, selected_date)
+
+    # Exit button
+    st.markdown("---")
+    if st.button("⬅️ Exit Student Mode", type="secondary", use_container_width=True):
+        st.session_state.pop("kiosk_mode", None)
+        st.session_state.pop("kiosk_expires", None)
+        st.session_state.pop("current_student", None)
+        st.session_state.pop("selected_user", None)
+        st.switch_page("pages/1_Landing.py")
+
+
+def show_user_search(selected_class, selected_date):
+    """Search interface for finding self"""
+    st.subheader("Find Yourself")
+    st.write("Search by your first or last name")
+
+    search_query = st.text_input(
+        "Search",
+        placeholder="Type at least 2 letters...",
+        label_visibility="collapsed",
+        key="user_search",
+    )
+
+    if search_query and len(search_query) >= 2:
+        try:
+            response = requests.get(
+                f"{BASE_URL}/users/search", params={"query": search_query}, timeout=5
+            )
+
+            if response.status_code == 200:
+                users = response.json()
+
+                if users:
+                    st.write(f"Found {len(users)} match(es):")
+
+                    for user in users:
+                        col1, col2, col3 = st.columns([1, 3, 1])
+
+                        with col1:
+                            if user.get("profile_image_url"):
+                                st.image(user["profile_image_url"], width=60)
+                            else:
+                                st.write("👤")
+
+                        with col2:
+                            st.write(f"**{user['first_name']} {user['last_name']}**")
+                            st.write(f"📧 {user['email']}")
+
+                        with col3:
+                            if st.button(
+                                "Select",
+                                key=f"select_{user['user_uuid']}",
+                                type="primary",
+                            ):
+                                st.session_state.selected_user = user
+                                st.rerun()
+                else:
+                    st.info("No matches found. Try a different search.")
+
+        except Exception as e:
+            st.error("Error searching users")
+
+
+def show_user_selection(selected_class, selected_date):
+    """Show selected user and confirm check-in"""
+    user = st.session_state.selected_user
+
+    st.success(f"Selected: {user['first_name']} {user['last_name']}")
+
+    # Check for existing check-in
+    try:
+        response = requests.get(
+            f"{BASE_URL}/attendance/user/{user['user_uuid']}", timeout=5
+        )
+
+        if response.status_code == 200:
+            attendance_records = response.json()
+            # Check if already checked in for this class/date
+            existing = [
+                r
+                for r in attendance_records
+                if r.get("class_id") == selected_class["id"]
+                and r.get("attendance_date") == str(selected_date)
+            ]
+
+            if existing:
+                status = existing[0].get("status", "confirmed")
+                if status == "confirmed":
+                    st.warning("You're already confirmed for this class!")
+                    if st.button("Done", type="primary", use_container_width=True):
+                        st.session_state.pop("selected_user", None)
+                        st.rerun()
+                    return
+                elif status == "pending":
+                    st.info(
+                        "You have a pending check-in. Waiting for teacher confirmation."
+                    )
+                    st.session_state.current_student = user
+                    st.session_state.check_in_status = "pending"
+                    if st.button(
+                        "View Status", type="primary", use_container_width=True
+                    ):
+                        st.rerun()
+                    return
+    except:
+        pass
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Check In Now", type="primary", use_container_width=True):
+            create_pending_check_in(user, selected_class, selected_date)
+    with col2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.pop("selected_user", None)
+            st.rerun()
+
+
+def create_pending_check_in(user, selected_class, selected_date):
+    """Create PENDING attendance record"""
+    try:
+        response = requests.post(
+            f"{BASE_URL}/attendance/check-in",
+            json={
+                "user_uuid": user["user_uuid"],
+                "class_id": selected_class["id"],
+                "attendance_date": str(selected_date),
+            },
+            timeout=5,
+        )
+
+        if response.status_code == 200:
+            st.session_state.current_student = user
+            st.session_state.check_in_status = "pending"
+            st.rerun()
+        elif response.status_code == 400:
+            data = response.json()
+            if "already" in data.get("detail", "").lower():
+                st.warning("You already checked in for this class!")
+        else:
+            st.error("Error checking in. Please try again.")
+
+    except Exception as e:
+        st.error("Error connecting to server")
+
+
+def show_check_in_confirmation(selected_class, selected_date):
+    """Show check-in status and allow cancellation"""
+    user = st.session_state.current_student
+
+    st.success(f"✅ Welcome, {user['first_name']}!")
+
+    # Check current status from server
+    try:
+        response = requests.get(
+            f"{BASE_URL}/attendance/user/{user['user_uuid']}", timeout=5
+        )
+
+        if response.status_code == 200:
+            attendance_records = response.json()
+            # Find record for this class/date
+            attendance = None
+            for r in attendance_records:
+                if r.get("class_id") == selected_class["id"] and r.get(
+                    "attendance_date"
+                ) == str(selected_date):
+                    attendance = r
+                    break
+
+            if attendance:
+                if attendance.get("status") == "pending":
+                    st.info("⏳ You're checked in! Waiting for teacher confirmation...")
+                    st.write("Your attendance will be confirmed when the class starts.")
+
+                    # Allow cancellation
+                    if st.button(
+                        "🗑️ Cancel My Check-in",
+                        type="secondary",
+                        use_container_width=True,
+                    ):
+                        cancel_check_in(attendance["id"], user["user_uuid"])
+
+                elif attendance.get("status") == "confirmed":
+                    st.success("🎉 You're confirmed for today's class!")
+                    st.write("See you on the mat!")
+
+                    if st.button("Done", type="primary", use_container_width=True):
+                        st.session_state.pop("current_student", None)
+                        st.session_state.pop("selected_user", None)
+                        st.rerun()
+            else:
+                st.warning("No check-in found. Please try again.")
+                if st.button("Start Over", type="primary", use_container_width=True):
+                    st.session_state.pop("current_student", None)
+                    st.session_state.pop("selected_user", None)
+                    st.rerun()
+
+    except Exception as e:
+        st.error("Error checking status")
+
+
+def cancel_check_in(attendance_id, user_uuid):
+    """Cancel own pending check-in"""
+    try:
+        response = requests.delete(
+            f"{BASE_URL}/attendance/{attendance_id}/cancel",
+            params={"user_uuid": user_uuid},
+            timeout=5,
+        )
+
+        if response.status_code == 200:
+            st.success("Check-in cancelled")
+            time.sleep(1)
+            st.session_state.pop("current_student", None)
+            st.session_state.pop("selected_user", None)
+            st.rerun()
+        else:
+            st.error("Error cancelling check-in")
+
+    except Exception as e:
+        st.error("Error connecting to server")
+
+
+# Check if in kiosk mode
+if st.session_state.get("kiosk_mode"):
+    render_kiosk_mode()
+    st.stop()
+
+
+# ===== ADMIN MODE (existing functionality) =====
 st.title("🥋 CKB Member Management")
 
 # --- SIDEBAR: THEME TOGGLE ---
@@ -298,18 +581,38 @@ if selected_class_name:
                 }
 
                 try:
-                    post_res = requests.post(f"{BASE_URL}/attendance/", data=payload)
+                    # Use the new check-in endpoint (creates PENDING status)
+                    post_res = requests.post(
+                        f"{BASE_URL}/attendance/check-in", json=payload
+                    )
 
                     if post_res.status_code == 200:
-                        st.toast(
-                            f"✅ {m['first_name']} checked in successfully!", icon="🥋"
-                        )
+                        response_data = post_res.json()
+                        if response_data.get("status") == "pending":
+                            st.toast(
+                                f"✅ {m['first_name']} checked in! Waiting for teacher confirmation.",
+                                icon="🥋",
+                            )
+                        else:
+                            st.toast(
+                                f"✅ {m['first_name']} checked in successfully!",
+                                icon="🥋",
+                            )
 
                     elif post_res.status_code == 400:
                         # This catches the UniqueConstraint violation from the backend
-                        st.warning(
-                            f"⚠️ {m['first_name']} is already checked into this class."
-                        )
+                        error_detail = post_res.json().get("detail", "")
+                        if (
+                            "already" in error_detail.lower()
+                            and "confirmed" in error_detail.lower()
+                        ):
+                            st.warning(
+                                f"⚠️ {m['first_name']} is already confirmed for this class."
+                            )
+                        else:
+                            st.warning(
+                                f"⚠️ {m['first_name']} is already checked into this class."
+                            )
 
                     else:
                         st.error(

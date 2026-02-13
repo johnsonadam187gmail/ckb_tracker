@@ -21,6 +21,7 @@ from .routers import (
     lessons,
     auth,
     feedback,
+    kiosk,
 )
 
 # Initialize the FastAPI app
@@ -43,6 +44,7 @@ app.include_router(curricula.router)
 app.include_router(lessons.router)
 app.include_router(auth.router)
 app.include_router(feedback.router)
+app.include_router(kiosk.router)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")

@@ -280,6 +280,13 @@ class FactAttendance(Base):
     attendance_date = Column(Date, default=lambda: datetime.now(timezone.utc).date())
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # NEW FIELDS - Mat-side workflow support
+    status = Column(String(20), default="confirmed", nullable=False, index=True)
+    confirmed_by = Column(
+        String, ForeignKey("users.user_uuid"), nullable=True, index=True
+    )
+    confirmed_at = Column(DateTime, nullable=True)
+
     __table_args__ = (
         UniqueConstraint(
             "user_uuid", "class_id", "attendance_date", name="_user_class_date_uc"
@@ -291,6 +298,7 @@ class FactAttendance(Base):
         "User", foreign_keys=[user_uuid], back_populates="attendance_records"
     )
     teacher = relationship("User", foreign_keys=[teacher_uuid])
+    confirmer = relationship("User", foreign_keys=[confirmed_by])
     class_info = relationship("ClassSchedule", back_populates="attendance_records")
     class_instance = relationship("ClassInstance", back_populates="attendance_records")
     user_role = relationship("UserRole", back_populates="attendance_records")
@@ -339,3 +347,22 @@ class ClassFeedback(Base):
     user = relationship("User", foreign_keys=[user_uuid])
     attendance = relationship("FactAttendance", backref="feedback")
     class_instance = relationship("ClassInstance", backref="feedback_records")
+
+
+class KioskAuth(Base):
+    """Stores the kiosk PIN for student check-in mode.
+
+    The kiosk PIN allows students to access the self check-in interface
+    without requiring individual login credentials.
+    """
+
+    __tablename__ = "kiosk_auth"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pin_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

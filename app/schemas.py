@@ -173,6 +173,17 @@ class AttendanceResponse(BaseModel):
     user_name: Optional[str] = None
     class_name: Optional[str] = None
     teacher_name: Optional[str] = None
+    # Mat-side workflow fields
+    status: str = "confirmed"  # "pending" or "confirmed"
+    confirmed_by: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
+    confirmer_name: Optional[str] = None
+    # Additional user details for dashboard
+    profile_image_url: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    rank: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -202,9 +213,95 @@ class ClassAttendanceResponse(BaseModel):
     points: float
     teacher_uuid: Optional[str] = None
     teacher_name: Optional[str] = None
+    status: str = "confirmed"
 
     class Config:
         from_attributes = True
+
+
+# --- Mat-Side Workflow Schemas ---
+class StudentCheckInRequest(BaseModel):
+    """Schema for student self check-in."""
+
+    user_uuid: str
+    class_id: int
+    attendance_date: date
+
+
+class PendingAttendanceResponse(BaseModel):
+    """Schema for pending attendance records (teacher view)."""
+
+    id: int
+    user_uuid: str
+    student_name: str
+    class_id: int
+    class_name: str
+    attendance_date: date
+    created_at: datetime
+    profile_image_url: Optional[str] = None
+    status: str = "pending"
+
+    class Config:
+        from_attributes = True
+
+
+class BulkConfirmRequest(BaseModel):
+    """Schema for bulk confirming attendance records."""
+
+    attendance_ids: List[int]
+
+
+class DirectAttendanceRequest(BaseModel):
+    """Schema for teacher direct attendance (bypasses self check-in)."""
+
+    user_uuid: str
+    class_id: int
+    attendance_date: date
+
+
+# --- User Search Schema ---
+class UserSearchResponse(BaseModel):
+    """Schema for user search results (minimal info for disambiguation)."""
+
+    user_uuid: str
+    first_name: str
+    last_name: str
+    email: str
+    profile_image_url: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# --- Kiosk Schemas ---
+class KioskPinVerifyRequest(BaseModel):
+    """Schema for kiosk PIN verification."""
+
+    pin: str
+
+
+class KioskPinVerifyResponse(BaseModel):
+    """Schema for kiosk PIN verification response."""
+
+    message: str
+    valid: bool
+
+
+class KioskPinUpdateRequest(BaseModel):
+    """Schema for updating kiosk PIN (admin only)."""
+
+    current_pin: str
+    new_pin: str
+
+    @field_validator("new_pin")
+    @classmethod
+    def validate_pin(cls, v):
+        """Validate PIN is 4-6 digits."""
+        if not v.isdigit():
+            raise ValueError("PIN must contain only numbers")
+        if len(v) < 4 or len(v) > 6:
+            raise ValueError("PIN must be 4-6 digits")
+        return v
 
 
 # --- Role Schemas ---
