@@ -403,7 +403,7 @@ with tab1:
                             "user", {}
                         ).get("profile_image_url")
                         if img_url:
-                            st.image(img_url, width=40)
+                            st.image(img_url, width=250)
                         else:
                             st.write("👤")
                     with cols_student[1]:

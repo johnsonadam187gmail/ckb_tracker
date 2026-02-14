@@ -58,75 +58,61 @@ if "show_camera" not in st.session_state:
 if "captured_photo" not in st.session_state:
     st.session_state.captured_photo = None
 
+# Initialize student check-in state
+if "session_student" not in st.session_state:
+    st.session_state.session_student = None
+if "session_last_activity" not in st.session_state:
+    st.session_state.session_last_activity = None
+if "show_start_over_confirm" not in st.session_state:
+    st.session_state.show_start_over_confirm = False
+if "show_cancel_confirm" not in st.session_state:
+    st.session_state.show_cancel_confirm = None  # Will store attendance_id to cancel
+if "checking_in_classes" not in st.session_state:
+    st.session_state.checking_in_classes = (
+        set()
+    )  # Track which classes are being checked in
+if "session_checked_in_classes" not in st.session_state:
+    st.session_state.session_checked_in_classes = (
+        set()
+    )  # Track ALL classes checked in this session
+
 # Load CSS
 load_css()
 
 
-# ===== KIOSK MODE =====
-def render_kiosk_mode():
-    """Student self check-in interface (kiosk mode)"""
-
-    # Check for timeout
-    if st.session_state.get("kiosk_expires"):
-        time_remaining = int(st.session_state.kiosk_expires - time.time())
-        if time_remaining <= 0:
-            st.session_state.pop("kiosk_mode", None)
-            st.session_state.pop("kiosk_expires", None)
-            st.session_state.pop("current_student", None)
-            st.session_state.pop("selected_user", None)
-            st.switch_page("pages/1_Landing.py")
-
-    # Header with timeout
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.title("📝 Student Check-In")
-    with col2:
-        time_remaining = int(st.session_state.kiosk_expires - time.time())
-        if time_remaining < 60:
-            st.error(f"⏰ Expires in {time_remaining}s")
-        else:
-            st.info(f"⏰ {time_remaining // 60}m remaining")
-
-    st.markdown("---")
-
-    # Class & Date Selection
-    col1, col2 = st.columns(2)
-    with col1:
-        selected_date = st.date_input("Date", value=date.today(), key="kiosk_date")
-    with col2:
-        try:
-            classes_response = requests.get(f"{BASE_URL}/classes/", timeout=5)
-            classes = classes_response.json()
-            selected_class = st.selectbox(
-                "Select Class",
-                classes,
-                format_func=lambda x: x["class_name"],
-                key="kiosk_class",
-            )
-        except:
-            st.error("Error loading classes")
-            return
-
-    # Show search interface or confirmation
-    if "current_student" in st.session_state:
-        show_check_in_confirmation(selected_class, selected_date)
-    elif "selected_user" in st.session_state:
-        show_user_selection(selected_class, selected_date)
-    else:
-        show_user_search(selected_class, selected_date)
-
-    # Exit button
-    st.markdown("---")
-    if st.button("⬅️ Exit Student Mode", type="secondary", use_container_width=True):
-        st.session_state.pop("kiosk_mode", None)
-        st.session_state.pop("kiosk_expires", None)
-        st.session_state.pop("current_student", None)
-        st.session_state.pop("selected_user", None)
-        st.switch_page("pages/1_Landing.py")
+# ===== SESSION MANAGEMENT =====
+def check_session_timeout():
+    """Check if session has expired (2 minutes of inactivity)"""
+    if st.session_state.session_student and st.session_state.session_last_activity:
+        elapsed = time.time() - st.session_state.session_last_activity
+        if elapsed > 120:  # 2 minutes
+            # Session expired
+            st.session_state.session_student = None
+            st.session_state.session_last_activity = None
+            st.session_state.show_start_over_confirm = False
+            st.session_state.show_cancel_confirm = None
+            return True
+    return False
 
 
-def show_user_search(selected_class, selected_date):
-    """Search interface for finding self"""
+def update_activity():
+    """Update last activity timestamp"""
+    st.session_state.session_last_activity = time.time()
+
+
+def clear_session():
+    """Clear student session"""
+    st.session_state.session_student = None
+    st.session_state.session_last_activity = None
+    st.session_state.show_start_over_confirm = False
+    st.session_state.show_cancel_confirm = None
+    st.session_state.checking_in_classes = set()
+    st.session_state.session_checked_in_classes = set()
+
+
+# ===== USER SEARCH =====
+def show_user_search():
+    """Search interface for finding student"""
     st.subheader("Find Yourself")
     st.write("Search by your first or last name")
 
@@ -154,7 +140,7 @@ def show_user_search(selected_class, selected_date):
 
                         with col1:
                             if user.get("profile_image_url"):
-                                st.image(user["profile_image_url"], width=60)
+                                st.image(user["profile_image_url"], width=80)
                             else:
                                 st.write("👤")
 
@@ -168,7 +154,8 @@ def show_user_search(selected_class, selected_date):
                                 key=f"select_{user['user_uuid']}",
                                 type="primary",
                             ):
-                                st.session_state.selected_user = user
+                                st.session_state.session_student = user
+                                update_activity()
                                 st.rerun()
                 else:
                     st.info("No matches found. Try a different search.")
@@ -177,447 +164,503 @@ def show_user_search(selected_class, selected_date):
             st.error("Error searching users")
 
 
-def show_user_selection(selected_class, selected_date):
-    """Show selected user and confirm check-in"""
-    user = st.session_state.selected_user
-
-    st.success(f"Selected: {user['first_name']} {user['last_name']}")
-
-    # Check for existing check-in
+# ===== CLASS CHECK-IN DASHBOARD =====
+def get_todays_attendance(user_uuid):
+    """Get all attendance records for user for today"""
+    today = date.today()
     try:
-        response = requests.get(
-            f"{BASE_URL}/attendance/user/{user['user_uuid']}", timeout=5
-        )
-
+        response = requests.get(f"{BASE_URL}/attendance/user/{user_uuid}", timeout=5)
         if response.status_code == 200:
-            attendance_records = response.json()
-            # Check if already checked in for this class/date
-            existing = [
-                r
-                for r in attendance_records
-                if r.get("class_id") == selected_class["id"]
-                and r.get("attendance_date") == str(selected_date)
-            ]
-
-            if existing:
-                status = existing[0].get("status", "confirmed")
-                if status == "confirmed":
-                    st.warning("You're already confirmed for this class!")
-                    if st.button("Done", type="primary", use_container_width=True):
-                        st.session_state.pop("selected_user", None)
-                        st.rerun()
-                    return
-                elif status == "pending":
-                    st.info(
-                        "You have a pending check-in. Waiting for teacher confirmation."
-                    )
-                    st.session_state.current_student = user
-                    st.session_state.check_in_status = "pending"
-                    if st.button(
-                        "View Status", type="primary", use_container_width=True
-                    ):
-                        st.rerun()
-                    return
+            records = response.json()
+            # Filter for today's records only
+            return [r for r in records if r.get("attendance_date") == str(today)]
     except:
         pass
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ Check In Now", type="primary", use_container_width=True):
-            create_pending_check_in(user, selected_class, selected_date)
-    with col2:
-        if st.button("❌ Cancel", use_container_width=True):
-            st.session_state.pop("selected_user", None)
-            st.rerun()
+    return []
 
 
-def create_pending_check_in(user, selected_class, selected_date):
-    """Create PENDING attendance record"""
+def get_all_classes():
+    """Get all available classes"""
+    try:
+        response = requests.get(f"{BASE_URL}/classes/", timeout=5)
+        if response.status_code == 200:
+            classes = response.json()
+            # Sort by time
+            return sorted(classes, key=lambda x: x.get("time", ""))
+    except:
+        pass
+    return []
+
+
+def check_in_to_class(user_uuid, class_id):
+    """Create PENDING attendance record for class"""
+    today = date.today()
     try:
         response = requests.post(
             f"{BASE_URL}/attendance/check-in",
             json={
-                "user_uuid": user["user_uuid"],
-                "class_id": selected_class["id"],
-                "attendance_date": str(selected_date),
+                "user_uuid": user_uuid,
+                "class_id": class_id,
+                "attendance_date": str(today),
             },
             timeout=5,
         )
-
-        if response.status_code == 200:
-            st.session_state.current_student = user
-            st.session_state.check_in_status = "pending"
-            st.rerun()
-        elif response.status_code == 400:
-            data = response.json()
-            if "already" in data.get("detail", "").lower():
-                st.warning("You already checked in for this class!")
-        else:
-            st.error("Error checking in. Please try again.")
-
-    except Exception as e:
-        st.error("Error connecting to server")
-
-
-def show_check_in_confirmation(selected_class, selected_date):
-    """Show check-in status and allow cancellation"""
-    user = st.session_state.current_student
-
-    st.success(f"✅ Welcome, {user['first_name']}!")
-
-    # Check current status from server
-    try:
-        response = requests.get(
-            f"{BASE_URL}/attendance/user/{user['user_uuid']}", timeout=5
-        )
-
-        if response.status_code == 200:
-            attendance_records = response.json()
-            # Find record for this class/date
-            attendance = None
-            for r in attendance_records:
-                if r.get("class_id") == selected_class["id"] and r.get(
-                    "attendance_date"
-                ) == str(selected_date):
-                    attendance = r
-                    break
-
-            if attendance:
-                if attendance.get("status") == "pending":
-                    st.info("⏳ You're checked in! Waiting for teacher confirmation...")
-                    st.write("Your attendance will be confirmed when the class starts.")
-
-                    # Allow cancellation
-                    if st.button(
-                        "🗑️ Cancel My Check-in",
-                        type="secondary",
-                        use_container_width=True,
-                    ):
-                        cancel_check_in(attendance["id"], user["user_uuid"])
-
-                elif attendance.get("status") == "confirmed":
-                    st.success("🎉 You're confirmed for today's class!")
-                    st.write("See you on the mat!")
-
-                    if st.button("Done", type="primary", use_container_width=True):
-                        st.session_state.pop("current_student", None)
-                        st.session_state.pop("selected_user", None)
-                        st.rerun()
-            else:
-                st.warning("No check-in found. Please try again.")
-                if st.button("Start Over", type="primary", use_container_width=True):
-                    st.session_state.pop("current_student", None)
-                    st.session_state.pop("selected_user", None)
-                    st.rerun()
-
-    except Exception as e:
-        st.error("Error checking status")
+        return response.status_code == 200
+    except:
+        return False
 
 
 def cancel_check_in(attendance_id, user_uuid):
-    """Cancel own pending check-in"""
+    """Cancel pending check-in"""
     try:
         response = requests.delete(
             f"{BASE_URL}/attendance/{attendance_id}/cancel",
             params={"user_uuid": user_uuid},
             timeout=5,
         )
+        return response.status_code == 200
+    except:
+        return False
 
-        if response.status_code == 200:
-            st.success("Check-in cancelled")
-            time.sleep(1)
-            st.session_state.pop("current_student", None)
-            st.session_state.pop("selected_user", None)
+
+def show_student_dashboard():
+    """Main student dashboard showing all classes and check-in status"""
+    user = st.session_state.session_student
+
+    # Check for session timeout
+    if check_session_timeout():
+        st.warning("⏰ Session expired due to inactivity. Please search again.")
+        st.rerun()
+        return
+
+    # Update activity
+    update_activity()
+
+    # Calculate time remaining
+    time_remaining = 120 - (time.time() - st.session_state.session_last_activity)
+
+    # Student info header
+    st.success(f"👤 Signed in as: {user['first_name']} {user['last_name']}")
+
+    # Large photo
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        if user.get("profile_image_url"):
+            st.image(user["profile_image_url"], width=250)
+        else:
+            st.markdown("## 👤")
+    with col2:
+        st.write(f"**Name:** {user['first_name']} {user['last_name']}")
+        st.write(f"**Email:** {user['email']}")
+        if time_remaining < 60:
+            st.error(f"⏰ Session expires in {int(time_remaining)}s")
+        else:
+            st.info(
+                f"⏰ Session expires in {int(time_remaining // 60)}m {int(time_remaining % 60)}s"
+            )
+
+    st.markdown("---")
+
+    # Get today's attendance and all classes
+    todays_attendance = get_todays_attendance(user["user_uuid"])
+    all_classes = get_all_classes()
+
+    # Create attendance lookup by class_id
+    attendance_by_class = {}
+    for att in todays_attendance:
+        attendance_by_class[att.get("class_id")] = att
+
+    # Display all classes
+    st.subheader(f"📋 Today's Classes ({date.today().strftime('%B %d, %Y')}):")
+
+    if not all_classes:
+        st.info("No classes scheduled for today.")
+    else:
+        for cls in all_classes:
+            class_id = cls["id"]
+            class_name = cls.get("class_name", "Unknown")
+            class_time = cls.get("time", "")
+
+            # Get attendance status for this class
+            att = attendance_by_class.get(class_id)
+
+            if att:
+                status = att.get("status", "pending")
+                attendance_id = att.get("id")
+
+                if status == "confirmed":
+                    # Confirmed - Green background
+                    with st.container():
+                        st.markdown(
+                            """
+                            <div style="background-color: rgba(76, 175, 80, 0.2); padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        col1, col2, col3 = st.columns([3, 2, 2])
+                        with col1:
+                            st.write(f"🥋 **{class_name}** ({class_time})")
+                        with col2:
+                            st.write("✅ Confirmed")
+                        with col3:
+                            st.button(
+                                "Already Confirmed",
+                                key=f"confirmed_{class_id}",
+                                disabled=True,
+                                use_container_width=True,
+                            )
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                else:  # pending
+                    # Pending - Yellow background
+                    with st.container():
+                        st.markdown(
+                            """
+                            <div style="background-color: rgba(255, 193, 7, 0.2); padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        col1, col2, col3 = st.columns([3, 2, 2])
+                        with col1:
+                            st.write(f"🥋 **{class_name}** ({class_time})")
+                        with col2:
+                            st.write("⏳ Pending")
+                        with col3:
+                            # Show cancel button or confirmation dialog
+                            if st.session_state.show_cancel_confirm == attendance_id:
+                                st.warning("Cancel this check-in?")
+                                ccol1, ccol2 = st.columns(2)
+                                with ccol1:
+                                    if st.button(
+                                        "Yes",
+                                        key=f"confirm_cancel_{attendance_id}",
+                                        type="primary",
+                                    ):
+                                        if cancel_check_in(
+                                            attendance_id, user["user_uuid"]
+                                        ):
+                                            st.success("Cancelled!")
+                                            st.session_state.show_cancel_confirm = None
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                        else:
+                                            st.error("Error cancelling")
+                                with ccol2:
+                                    if st.button(
+                                        "No", key=f"deny_cancel_{attendance_id}"
+                                    ):
+                                        st.session_state.show_cancel_confirm = None
+                                        st.rerun()
+                            else:
+                                if st.button(
+                                    "🗑️ Cancel",
+                                    key=f"cancel_{class_id}",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.show_cancel_confirm = attendance_id
+                                    st.rerun()
+                        st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                # Not checked in - Check if being processed or was checked in this session
+                is_checking_in = class_id in st.session_state.checking_in_classes
+                is_session_checked = (
+                    class_id in st.session_state.session_checked_in_classes
+                )
+
+                with st.container():
+                    # Determine visual state
+                    if is_checking_in:
+                        # Currently processing
+                        bg_color = "rgba(128, 128, 128, 0.3)"
+                        status_text = "⏳ Checking in..."
+                        button_label = "⏳ Processing..."
+                        button_disabled = True
+                    elif is_session_checked:
+                        # Checked in this session (may not show in API yet)
+                        bg_color = "rgba(255, 193, 7, 0.3)"
+                        status_text = "⏳ Pending"
+                        button_label = "🗑️ Cancel"
+                        button_disabled = False
+                    else:
+                        # Not checked in
+                        bg_color = "rgba(128, 128, 128, 0.2)"
+                        status_text = "Not Checked In"
+                        button_label = "✅ Check In"
+                        button_disabled = False
+
+                    st.markdown(
+                        f"""
+                        <div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    col1, col2, col3 = st.columns([3, 2, 2])
+                    with col1:
+                        st.write(f"🥋 **{class_name}** ({class_time})")
+                    with col2:
+                        st.write(status_text)
+                    with col3:
+                        if is_checking_in:
+                            # Show disabled processing button
+                            st.button(
+                                button_label,
+                                key=f"processing_{class_id}",
+                                disabled=True,
+                                use_container_width=True,
+                            )
+                        elif is_session_checked:
+                            # Show cancel button (treat as pending)
+                            if st.button(
+                                button_label,
+                                key=f"cancel_{class_id}",
+                                use_container_width=True,
+                            ):
+                                # Remove from session set to allow re-checkin
+                                st.session_state.session_checked_in_classes.discard(
+                                    class_id
+                                )
+                                st.rerun()
+                        else:
+                            # Show active check-in button
+                            if st.button(
+                                button_label,
+                                key=f"checkin_{class_id}",
+                                type="primary",
+                                use_container_width=True,
+                            ):
+                                # Add to checking set immediately for visual feedback
+                                st.session_state.checking_in_classes.add(class_id)
+                                st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Process any pending check-ins after rendering all buttons
+    # This happens outside the loop to avoid duplicate processing
+    for class_id in list(st.session_state.checking_in_classes):
+        if check_in_to_class(user["user_uuid"], class_id):
+            st.session_state.checking_in_classes.discard(class_id)
+            st.session_state.session_checked_in_classes.add(class_id)
             st.rerun()
         else:
-            st.error("Error cancelling check-in")
-
-    except Exception as e:
-        st.error("Error connecting to server")
-
-
-# Check if in kiosk mode
-if st.session_state.get("kiosk_mode"):
-    render_kiosk_mode()
-    st.stop()
-
-
-# ===== ADMIN MODE (existing functionality) =====
-st.title("🥋 CKB Member Management")
-
-# --- SIDEBAR: THEME TOGGLE ---
-with st.sidebar:
-    st.markdown("### ⚙️ Settings")
-
-    # Theme toggle
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.write("**Theme Mode**")
-    with col2:
-        # Theme toggle button
-        current_theme = st.session_state.get("theme", "dark")
-        if st.button(
-            "🌙" if current_theme == "dark" else "☀️",
-            key="theme_toggle",
-            help="Toggle theme",
-        ):
-            st.session_state.theme = "light" if current_theme == "dark" else "dark"
+            st.session_state.checking_in_classes.discard(class_id)
+            st.error(f"Error checking in to class {class_id}")
             st.rerun()
 
-    st.divider()
+    st.markdown("---")
 
-# --- SIDEBAR: ADD NEW MEMBER ---
-st.sidebar.header("Add New Member")
-
-# Photo Capture Section (OUTSIDE the form to allow buttons)
-st.sidebar.markdown("### 📸 Profile Photo")
-st.sidebar.markdown("*Optional - Add a profile photo*")
-
-# Photo input method selection
-photo_method = st.sidebar.radio(
-    "Choose photo method:",
-    ["Take Photo (Camera)", "Upload File", "No Photo"],
-    key="photo_method",
-)
-
-uploaded_file = None
-
-if photo_method == "Take Photo (Camera)":
-    # Toggle button for camera
-    if not st.session_state.show_camera:
-        if st.sidebar.button(
-            "📷 Open Camera", key="open_camera", use_container_width=True
-        ):
-            st.session_state.show_camera = True
-            st.rerun()
-    else:
-        # Show the camera input
-        camera_photo = st.sidebar.camera_input(
-            "Take a photo",
-            help="Click the camera button to capture",
-            key="camera_input",
-        )
-        if camera_photo:
-            st.session_state.captured_photo = camera_photo
-            st.session_state.show_camera = False
-            st.rerun()
-
-        # Button to close camera without taking photo
-        if st.sidebar.button("❌ Cancel", key="cancel_camera"):
-            st.session_state.show_camera = False
-            st.rerun()
-
-    # Use captured photo if available
-    if st.session_state.captured_photo:
-        uploaded_file = st.session_state.captured_photo
-        st.sidebar.success("Photo captured!")
-
-elif photo_method == "Upload File":
-    # File upload
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload Profile Picture",
-        type=["jpg", "jpeg", "png"],
-        help="Supported formats: JPG, JPEG, PNG (Max 5MB)",
-    )
-    # Clear any previously captured photo
-    if st.session_state.captured_photo:
-        st.session_state.captured_photo = None
-
-else:
-    # No photo selected
-    uploaded_file = None
-    if st.session_state.captured_photo:
-        st.session_state.captured_photo = None
-
-# Preview the photo if captured/uploaded
-if uploaded_file:
-    st.sidebar.image(uploaded_file, width=200)
-    st.sidebar.caption("Photo ready for upload")
-    if st.sidebar.button("❌ Clear Photo", key="clear_photo"):
-        st.session_state.captured_photo = None
-        st.session_state.show_camera = False
+    # Complete button - simple way to finish and go back to search
+    if st.button(
+        "✅ Complete - Done",
+        key="complete_session",
+        type="primary",
+        use_container_width=True,
+    ):
+        clear_session()
         st.rerun()
 
-st.sidebar.markdown("---")
+    st.markdown("---")
 
-# Now the form (without camera inside it)
-with st.sidebar.form("add_user_form"):
-    first_name = st.text_input("First Name")
-    last_name = st.text_input("Last Name")
-    email = st.text_input("Email")
-
-    # Password fields (required)
-    password = st.text_input(
-        "Password", type="password", help="Minimum 6 characters required"
-    )
-    confirm_password = st.text_input("Confirm Password", type="password")
-
-    nicknames = st.text_input("Nicknames (Optional)")
-    rank = st.selectbox("Current Rank", ["White", "Blue", "Purple", "Brown", "Black"])
-    last_grade = st.date_input("Last Grading Date", value=date.today())
-    comments = st.text_area("Comments")
-
-    submit_button = st.form_submit_button("Create Member")
-
-if submit_button:
-    # Validate required fields
-    if not first_name or not last_name or not email:
-        st.sidebar.error("❌ First Name, Last Name, and Email are required!")
-    elif not password or not confirm_password:
-        st.sidebar.error("❌ Password is required!")
-    elif len(password) < 6:
-        st.sidebar.error("❌ Password must be at least 6 characters!")
-    elif password != confirm_password:
-        st.sidebar.error("❌ Passwords do not match!")
+    # Start Over button at bottom with confirmation
+    if st.session_state.show_start_over_confirm:
+        st.warning(
+            "Are you sure you want to start over? This will sign out the current student."
+        )
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(
+                "Yes, Start Over",
+                key="confirm_start_over",
+                type="primary",
+                use_container_width=True,
+            ):
+                clear_session()
+                st.rerun()
+        with col2:
+            if st.button(
+                "No, Stay Signed In", key="cancel_start_over", use_container_width=True
+            ):
+                st.session_state.show_start_over_confirm = False
+                st.rerun()
     else:
-        # Prepare the form data for FastAPI
-        payload = {
-            "first_name": first_name,
-            "last_name": last_name,
-            "email": email,
-            "password": password,
-            "nicknames": nicknames,
-            "rank": rank,
-            "last_grade_date": str(last_grade),  # Convert date to string for the form
-            "comments": comments,
-        }
+        if st.button(
+            "🔄 Start Over - New Student", key="start_over", use_container_width=True
+        ):
+            st.session_state.show_start_over_confirm = True
+            st.rerun()
 
-        # Handle the file upload part
-        files = None
-        if uploaded_file:
-            file_bytes = uploaded_file.getvalue()
-            # DEBUG: Uncomment below for debugging file uploads
-            # st.sidebar.write(f"DEBUG: File size: {len(file_bytes)} bytes")
-            # st.sidebar.write(f"DEBUG: File name: {uploaded_file.name}")
-            # st.sidebar.write(f"DEBUG: File type: {uploaded_file.type}")
-            files = {
-                "file": (
-                    uploaded_file.name,
-                    file_bytes,
-                    uploaded_file.type,
-                )
-            }
 
-        try:
-            # We send a POST request to your FastAPI /users/ endpoint
-            response = requests.post(f"{BASE_URL}/users/", data=payload, files=files)
+# ===== SIDEBAR FUNCTIONS =====
+def render_sidebar():
+    """Render the sidebar with theme toggle and add member form"""
+    # Theme toggle
+    with st.sidebar:
+        st.markdown("### ⚙️ Settings")
 
-            if response.status_code == 200:
-                st.sidebar.success(f"✅ Successfully added {first_name}!")
-                # Clear the captured photo after successful creation
-                st.session_state.captured_photo = None
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.write("**Theme Mode**")
+        with col2:
+            current_theme = st.session_state.get("theme", "dark")
+            if st.button(
+                "🌙" if current_theme == "dark" else "☀️",
+                key="theme_toggle",
+                help="Toggle theme",
+            ):
+                st.session_state.theme = "light" if current_theme == "dark" else "dark"
+                st.rerun()
+
+        st.divider()
+
+    # Add New Member Section
+    st.sidebar.header("Add New Member")
+
+    # Photo Capture Section
+    st.sidebar.markdown("### 📸 Profile Photo")
+    st.sidebar.markdown("*Optional - Add a profile photo*")
+
+    photo_method = st.sidebar.radio(
+        "Choose photo method:",
+        ["Take Photo (Camera)", "Upload File", "No Photo"],
+        key="photo_method",
+    )
+
+    uploaded_file = None
+
+    if photo_method == "Take Photo (Camera)":
+        if not st.session_state.show_camera:
+            if st.sidebar.button(
+                "📷 Open Camera", key="open_camera", use_container_width=True
+            ):
+                st.session_state.show_camera = True
+                st.rerun()
+        else:
+            camera_photo = st.sidebar.camera_input(
+                "Take a photo",
+                help="Click the camera button to capture",
+                key="camera_input",
+            )
+            if camera_photo:
+                st.session_state.captured_photo = camera_photo
                 st.session_state.show_camera = False
                 st.rerun()
-            else:
-                st.sidebar.error(
-                    f"❌ Error: {response.json().get('detail', 'Unknown error')}"
-                )
-        except Exception as e:
-            st.sidebar.error(f"⚠️ Could not connect to Backend: {e}")
 
-# --- MAIN AREA: VIEW MEMBERS ---
+            if st.sidebar.button("❌ Cancel", key="cancel_camera"):
+                st.session_state.show_camera = False
+                st.rerun()
 
-st.header("Daily Attendance")
+        if st.session_state.captured_photo:
+            uploaded_file = st.session_state.captured_photo
+            st.sidebar.success("Photo captured!")
 
-# 1. Date and Class Selection
-col1, col2 = st.columns(2)
-with col1:
-    selected_date = st.date_input("Training Date", value=datetime.now())
-with col2:
-    class_res = requests.get(f"{BASE_URL}/classes/")
-    classes = class_res.json() if class_res.status_code == 200 else []
-    class_options = {f"{c['class_name']} ({c['time']})": c["id"] for c in classes}
-    selected_class_name = st.selectbox(
-        "Select Class", options=list(class_options.keys())
-    )
+    elif photo_method == "Upload File":
+        uploaded_file = st.sidebar.file_uploader(
+            "Upload Profile Picture",
+            type=["jpg", "jpeg", "png"],
+            help="Supported formats: JPG, JPEG, PNG (Max 5MB)",
+        )
+        if st.session_state.captured_photo:
+            st.session_state.captured_photo = None
 
-if selected_class_name:
-    class_id = class_options[selected_class_name]
+    else:
+        uploaded_file = None
+        if st.session_state.captured_photo:
+            st.session_state.captured_photo = None
 
-    # 2. Get Active Members to check in
-    members_res = requests.get(f"{BASE_URL}/users/")  # Only returns is_current=True
-    members = members_res.json()
+    if uploaded_file:
+        st.sidebar.image(uploaded_file, width=200)
+        st.sidebar.caption("Photo ready for upload")
+        if st.sidebar.button("❌ Clear Photo", key="clear_photo"):
+            st.session_state.captured_photo = None
+            st.session_state.show_camera = False
+            st.rerun()
 
-    st.subheader("Class Attendance")
+    st.sidebar.markdown("---")
 
-    # DEBUG: Uncomment to check photo URLs
-    # with st.expander("🔍 Debug: Check Photo URLs", expanded=False):
-    #     if members:
-    #         for m in members[:3]:
-    #             img_url = m.get("profile_image_url", "NO URL")
-    #             st.write(f"**{m['first_name']}:** `{img_url}`")
-    #             if img_url and img_url != "NO URL":
-    #                 st.code(f"Full URL: {img_url}", language="text")
-    #     else:
-    #         st.write("No members found")
+    # Add member form
+    with st.sidebar.form("add_user_form"):
+        first_name = st.text_input("First Name")
+        last_name = st.text_input("Last Name")
+        email = st.text_input("Email")
 
-    for m in members:
-        # Create columns for photo, info, and button
-        cols = st.columns([1, 4, 1.5])
+        password = st.text_input(
+            "Password", type="password", help="Minimum 6 characters required"
+        )
+        confirm_password = st.text_input("Confirm Password", type="password")
 
-        # Photo column
-        with cols[0]:
-            img_url = m.get("profile_image_url")
-            if img_url:
-                # Use simple st.image with error handling via columns
-                try:
-                    st.image(img_url, width=50)
-                except Exception:
-                    st.markdown("👤", help="Photo unavailable")
-            else:
-                st.markdown("👤", help="No photo")
+        nicknames = st.text_input("Nicknames (Optional)")
+        rank = st.selectbox(
+            "Current Rank", ["White", "Blue", "Purple", "Brown", "Black"]
+        )
+        last_grade = st.date_input("Last Grading Date", value=date.today())
+        comments = st.text_area("Comments")
 
-        # Name and info column
-        with cols[1]:
-            st.write(f"**{m['first_name']} {m['last_name']}** ({m['rank']})")
+        submit_button = st.form_submit_button("Create Member")
 
-        # Button column
-        with cols[2]:
-            if st.button("Check In", key=f"checkin_{m['user_uuid']}"):
-                payload = {
-                    "user_uuid": m["user_uuid"],
-                    "class_id": class_id,
-                    "attendance_date": str(selected_date),
+    if submit_button:
+        if not first_name or not last_name or not email:
+            st.sidebar.error("❌ First Name, Last Name, and Email are required!")
+        elif not password or not confirm_password:
+            st.sidebar.error("❌ Password is required!")
+        elif len(password) < 6:
+            st.sidebar.error("❌ Password must be at least 6 characters!")
+        elif password != confirm_password:
+            st.sidebar.error("❌ Passwords do not match!")
+        else:
+            payload = {
+                "first_name": first_name,
+                "last_name": last_name,
+                "email": email,
+                "password": password,
+                "nicknames": nicknames,
+                "rank": rank,
+                "last_grade_date": str(last_grade),
+                "comments": comments,
+            }
+
+            files = None
+            if uploaded_file:
+                file_bytes = uploaded_file.getvalue()
+                files = {
+                    "file": (
+                        uploaded_file.name,
+                        file_bytes,
+                        uploaded_file.type,
+                    )
                 }
 
-                try:
-                    # Use the new check-in endpoint (creates PENDING status)
-                    post_res = requests.post(
-                        f"{BASE_URL}/attendance/check-in", json=payload
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/users/", data=payload, files=files
+                )
+
+                if response.status_code == 200:
+                    st.sidebar.success(f"✅ Successfully added {first_name}!")
+                    st.session_state.captured_photo = None
+                    st.session_state.show_camera = False
+                    st.rerun()
+                else:
+                    st.sidebar.error(
+                        f"❌ Error: {response.json().get('detail', 'Unknown error')}"
                     )
+            except Exception as e:
+                st.sidebar.error(f"⚠️ Could not connect to Backend: {e}")
 
-                    if post_res.status_code == 200:
-                        response_data = post_res.json()
-                        if response_data.get("status") == "pending":
-                            st.toast(
-                                f"✅ {m['first_name']} checked in! Waiting for teacher confirmation.",
-                                icon="🥋",
-                            )
-                        else:
-                            st.toast(
-                                f"✅ {m['first_name']} checked in successfully!",
-                                icon="🥋",
-                            )
 
-                    elif post_res.status_code == 400:
-                        # This catches the UniqueConstraint violation from the backend
-                        error_detail = post_res.json().get("detail", "")
-                        if (
-                            "already" in error_detail.lower()
-                            and "confirmed" in error_detail.lower()
-                        ):
-                            st.warning(
-                                f"⚠️ {m['first_name']} is already confirmed for this class."
-                            )
-                        else:
-                            st.warning(
-                                f"⚠️ {m['first_name']} is already checked into this class."
-                            )
+# ===== MAIN PAGE LAYOUT =====
+st.title("📝 Student Check-In")
 
-                    else:
-                        st.error(
-                            f"Error: {post_res.json().get('detail', 'Unknown error occurred')}"
-                        )
+# Render sidebar
+render_sidebar()
 
-                except Exception as e:
-                    st.error(f"Connection failed: {e}")
+# Main content area
+st.markdown("---")
+
+# Display current date
+st.info(f"📅 {date.today().strftime('%A, %B %d, %Y')}")
+
+st.markdown("---")
+
+# Show either search or dashboard based on session state
+if st.session_state.session_student:
+    show_student_dashboard()
+else:
+    show_user_search()
