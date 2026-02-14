@@ -1,8 +1,10 @@
 import streamlit as st
 import requests
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
 import re
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 
@@ -74,6 +76,28 @@ if "theme" not in st.session_state:
 
 # Load CSS
 load_css()
+
+
+# Helper function for theme-aware chart colors
+def get_chart_theme():
+    """Get Plotly chart template based on current theme"""
+    theme = st.session_state.get("theme", "dark")
+    if theme == "dark":
+        return {
+            "template": "plotly_dark",
+            "colors": ["#c91a2b", "#2196F3", "#4CAF50", "#FFA726", "#9C27B0"],
+            "paper_bgcolor": "rgba(25, 27, 31, 0.8)",
+            "plot_bgcolor": "rgba(15, 17, 21, 0.5)",
+            "font_color": "#FFFFFF",
+        }
+    else:
+        return {
+            "template": "plotly_white",
+            "colors": ["#c91a2b", "#1976D2", "#388E3C", "#F57C00", "#7B1FA2"],
+            "paper_bgcolor": "rgba(255, 255, 255, 0.9)",
+            "plot_bgcolor": "rgba(245, 245, 245, 0.5)",
+            "font_color": "#212121",
+        }
 
 
 # --- AUTHENTICATION LOGIC ---
@@ -149,6 +173,7 @@ if check_password():
         tab_targets,
         tab_lessons,
         tab_passwords,
+        tab_performance,
         tab_feedback,
         tab_kiosk,
     ) = st.tabs(
@@ -160,6 +185,7 @@ if check_password():
             "🎯 Targets",
             "📚 Lessons",
             "🔐 Student Passwords",
+            "📈 Performance Analytics",
             "📊 Feedback Analytics",
             "📱 Kiosk Management",
         ]
@@ -1461,7 +1487,375 @@ if check_password():
                 """
             )
 
-    # --- 8. FEEDBACK ANALYTICS ---
+    # --- 8. PERFORMANCE ANALYTICS ---
+    with tab_performance:
+        st.header("📈 Performance Analytics")
+        st.markdown("View student and teacher performance metrics")
+
+        # Fetch data
+        try:
+            users = requests.get(f"{BASE_URL}/users/").json()
+            terms = requests.get(f"{BASE_URL}/terms/").json()
+            targets = requests.get(f"{BASE_URL}/term-targets/").json()
+        except Exception as e:
+            st.error(f"Failed to fetch data: {e}")
+            users, terms, targets = [], [], []
+
+        if not users:
+            st.warning("No users found. Please add members first.")
+        else:
+            # Sidebar filters for analytics
+            st.subheader("🔍 Filter Analytics")
+
+            # Map full names to user objects
+            user_map = {f"{u['first_name']} {u['last_name']}": u for u in users}
+            selected_student_name = st.selectbox(
+                "Select Student", options=list(user_map.keys())
+            )
+
+            term_map = {t["term_name"]: t for t in terms}
+            term_options = ["All Time"] + list(term_map.keys())
+            selected_term_name = st.selectbox("Filter by Term", options=term_options)
+
+            # Get selected user details
+            user = user_map[selected_student_name]
+            user_uuid = user["user_uuid"]
+
+            # Check user's roles
+            try:
+                user_roles_res = requests.get(f"{BASE_URL}/roles/user/{user_uuid}")
+                user_roles = (
+                    user_roles_res.json() if user_roles_res.status_code == 200 else []
+                )
+                user_role_names = [r["role_name"] for r in user_roles]
+            except:
+                user_role_names = []
+
+            # Determine analytics view
+            is_teacher = "Teacher" in user_role_names
+
+            # Add analytics type selector
+            if is_teacher:
+                analytics_type = st.radio(
+                    "View Analytics As:",
+                    ["Student", "Teacher"],
+                    help="Select which analytics view to display",
+                )
+            else:
+                analytics_type = "Student"
+
+            # Date range logic
+            if selected_term_name != "All Time":
+                term = term_map[selected_term_name]
+                start_dt = term["start_date"]
+                end_dt = term["end_date"]
+            else:
+                # Default to last 365 days for "All Time"
+                start_dt = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+                end_dt = datetime.now().strftime("%Y-%m-%d")
+
+            st.divider()
+
+            # Fetch attendance data
+            attendance_data = []
+            try:
+                att_res = requests.get(
+                    f"{BASE_URL}/attendance/user/{user_uuid}?start={start_dt}&end={end_dt}"
+                )
+                if att_res.status_code == 200:
+                    raw_data = att_res.json()
+                    if isinstance(raw_data, list):
+                        attendance_data = raw_data
+            except Exception as e:
+                st.error(f"Connection Error: {e}")
+
+            # --- STUDENT ANALYTICS ---
+            if analytics_type == "Student":
+                st.header(
+                    f"Student Performance: {selected_student_name} ({user['rank']})"
+                )
+                kpi1, kpi2, chart_col = st.columns([1, 1, 2])
+
+                # Initialize totals
+                total_points = 0.0
+                total_classes = 0
+
+                if attendance_data:
+                    df_att = pd.DataFrame(attendance_data)
+                    points_col = "points"
+
+                    # Convert to numeric to ensure we can sum safely
+                    if points_col in df_att.columns:
+                        df_att[points_col] = pd.to_numeric(
+                            df_att[points_col], errors="coerce"
+                        ).fillna(0)
+                        total_points = float(df_att[points_col].sum())
+
+                    total_classes = len(attendance_data)
+
+                with kpi1:
+                    st.metric("Total Mat Points", f"{total_points:.1f}")
+                with kpi2:
+                    st.metric("Total Sessions", total_classes)
+
+                with chart_col:
+                    # Target lookup
+                    target_val = 50.0  # Fallback
+                    if selected_term_name != "All Time":
+                        relevant_target = next(
+                            (
+                                t
+                                for t in targets
+                                if t["term_id"] == term["id"]
+                                and t["rank"] == user["rank"]
+                            ),
+                            None,
+                        )
+                        if relevant_target:
+                            target_val = float(relevant_target["target"])
+
+                    # GAUGE: Comparing Sum of Weightings to Term Target
+                    fig_gauge = go.Figure(
+                        go.Indicator(
+                            mode="gauge+number+delta",
+                            value=total_points,
+                            title={
+                                "text": f"Mat Point Goal: {target_val}",
+                                "font": {"size": 18},
+                            },
+                            delta={
+                                "reference": target_val,
+                                "increasing": {"color": "#00cc96"},
+                            },
+                            gauge={
+                                "axis": {
+                                    "range": [
+                                        None,
+                                        max(target_val * 1.2, total_points + 5),
+                                    ]
+                                },
+                                "bar": {"color": "#1f77b4"},
+                                "steps": [
+                                    {"range": [0, target_val], "color": "#e5ecf6"},
+                                    {
+                                        "range": [target_val, target_val * 1.2],
+                                        "color": "#d1f2eb",
+                                    },
+                                ],
+                                "threshold": {
+                                    "line": {"color": "red", "width": 4},
+                                    "thickness": 0.75,
+                                    "value": target_val,
+                                },
+                            },
+                        )
+                    )
+                    fig_gauge.update_layout(
+                        height=300, margin=dict(l=30, r=30, t=50, b=20)
+                    )
+                    st.plotly_chart(fig_gauge, use_container_width=True)
+
+                # --- VISUALIZATIONS ---
+                st.divider()
+                col_left, col_right = st.columns(2)
+
+                if attendance_data:
+                    df_att = pd.DataFrame(attendance_data)
+
+                    # Dynamic Column Identification
+                    time_col = next(
+                        (
+                            c
+                            for c in ["check_in_time", "timestamp", "created_at"]
+                            if c in df_att.columns
+                        ),
+                        None,
+                    )
+                    name_col = next(
+                        (
+                            c
+                            for c in ["class_name", "name", "label"]
+                            if c in df_att.columns
+                        ),
+                        None,
+                    )
+                    points_col = "points"
+
+                    # Validation: Ensure we have at least the basics
+                    if "points" not in df_att.columns:
+                        df_att["points"] = 1.0
+
+                    if time_col:
+                        df_att["date"] = pd.to_datetime(df_att[time_col]).dt.date
+
+                        with col_left:
+                            st.subheader("Attendance History")
+                            # Group by date and sum points
+                            daily_points = (
+                                df_att.groupby("date")[points_col].sum().reset_index()
+                            )
+                            daily_points["cumulative"] = daily_points[
+                                points_col
+                            ].cumsum()
+
+                            fig_line = px.area(
+                                daily_points,
+                                x="date",
+                                y="cumulative",
+                                title="Cumulative Points Accumulation",
+                                color_discrete_sequence=["#1f77b4"],
+                            )
+                            st.plotly_chart(fig_line, use_container_width=True)
+
+                    with col_right:
+                        st.subheader("Class Distribution")
+                        if name_col:
+                            fig_pie = px.pie(
+                                df_att,
+                                names=name_col,
+                                values=points_col,
+                                hole=0.4,
+                                title="Points by Class Type",
+                            )
+                            st.plotly_chart(fig_pie, use_container_width=True)
+                        else:
+                            st.info("No class names found to categorize distribution.")
+
+                    # --- DETAILED LOG ---
+                    st.divider()
+                    st.subheader("📋 Detailed Attendance Log")
+
+                    display_cols = [
+                        c
+                        for c in [time_col, name_col, "day", points_col]
+                        if c in df_att.columns
+                    ]
+                    df_display = df_att[display_cols].copy()
+
+                    if time_col in df_display.columns:
+                        df_display[time_col] = pd.to_datetime(
+                            df_display[time_col]
+                        ).dt.strftime("%b %d, %Y - %H:%M")
+
+                    st.dataframe(df_display, width="stretch", hide_index=True)
+
+                else:
+                    st.info("No attendance data to display for the selected criteria.")
+
+            # --- TEACHER ANALYTICS ---
+            elif analytics_type == "Teacher":
+                st.header(f"Teacher Performance: {selected_student_name}")
+
+                # Fetch teacher class summary
+                try:
+                    teacher_res = requests.get(
+                        f"{BASE_URL}/attendance/teacher/{user_uuid}/classes",
+                        params={"start_date": start_dt, "end_date": end_dt},
+                    )
+
+                    if teacher_res.status_code == 200:
+                        teacher_data = teacher_res.json()
+
+                        if teacher_data:
+                            df_teacher = pd.DataFrame(teacher_data)
+
+                            # KPIs
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Classes Taught", len(df_teacher))
+                            with col2:
+                                st.metric(
+                                    "Total Students",
+                                    int(df_teacher["student_count"].sum()),
+                                )
+                            with col3:
+                                st.metric(
+                                    "Avg Students/Class",
+                                    f"{df_teacher['student_count'].mean():.1f}",
+                                )
+
+                            st.divider()
+
+                            # Class breakdown
+                            col_left, col_right = st.columns(2)
+
+                            with col_left:
+                                st.subheader("Classes Taught by Type")
+                                class_summary = (
+                                    df_teacher.groupby("class_name")
+                                    .agg(
+                                        {"class_date": "count", "student_count": "sum"}
+                                    )
+                                    .reset_index()
+                                )
+                                class_summary.columns = [
+                                    "Class Type",
+                                    "Sessions",
+                                    "Total Students",
+                                ]
+
+                                theme = get_chart_theme()
+                                fig = px.bar(
+                                    class_summary,
+                                    x="Class Type",
+                                    y="Sessions",
+                                    title="Classes Taught by Type",
+                                    color="Total Students",
+                                    color_continuous_scale="Blues",
+                                    template=theme["template"],
+                                )
+                                fig.update_layout(
+                                    paper_bgcolor=theme["paper_bgcolor"],
+                                    plot_bgcolor=theme["plot_bgcolor"],
+                                    font_color=theme["font_color"],
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+
+                            with col_right:
+                                st.subheader("Student Attendance Trend")
+                                df_teacher["class_date"] = pd.to_datetime(
+                                    df_teacher["class_date"]
+                                )
+                                daily_students = (
+                                    df_teacher.groupby("class_date")["student_count"]
+                                    .sum()
+                                    .reset_index()
+                                )
+
+                                theme = get_chart_theme()
+                                fig_line = px.line(
+                                    daily_students,
+                                    x="class_date",
+                                    y="student_count",
+                                    title="Students per Day",
+                                    template=theme["template"],
+                                )
+                                fig_line.update_layout(
+                                    paper_bgcolor=theme["paper_bgcolor"],
+                                    plot_bgcolor=theme["plot_bgcolor"],
+                                    font_color=theme["font_color"],
+                                )
+                                st.plotly_chart(fig_line, use_container_width=True)
+
+                            # Detailed log
+                            st.divider()
+                            st.subheader("📋 Teaching Log")
+                            df_teacher["class_date"] = pd.to_datetime(
+                                df_teacher["class_date"]
+                            ).dt.strftime("%Y-%m-%d")
+                            display_df = df_teacher[
+                                ["class_date", "class_name", "student_count"]
+                            ]
+                            display_df.columns = ["Date", "Class", "Students"]
+                            st.dataframe(display_df, hide_index=True, width="stretch")
+                        else:
+                            st.info("No teaching records found for this period")
+                    else:
+                        st.error("Failed to fetch teacher analytics")
+                except Exception as e:
+                    st.error(f"Error fetching teacher analytics: {e}")
+
+    # --- 9. FEEDBACK ANALYTICS ---
     with tab_feedback:
         st.header("📊 Comprehensive Feedback Analytics")
         st.markdown(
