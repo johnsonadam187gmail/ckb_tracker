@@ -331,14 +331,21 @@ if "teacher_token" not in st.session_state or not verify_session():
 
 
 # --- AUTHENTICATED VIEW ---
-st.title("👨‍🏫 Teacher Dashboard")
 
-# Sidebar with logout button
+# Header with logout button
+col1, col2 = st.columns([6, 1])
+with col1:
+    st.title("👨‍🏫 Teacher Dashboard")
+with col2:
+    st.write("")
+    st.write("")
+    if st.button("🚪 Logout", type="secondary"):
+        logout()
+
+# Sidebar with logged in info
 with st.sidebar:
     teacher_name = f"{st.session_state.teacher_info['first_name']} {st.session_state.teacher_info['last_name']}"
     st.write(f"**Logged in as:** {teacher_name}")
-    if st.button("🚪 Logout", use_container_width=True):
-        logout()
 
 
 # --- TABS ---

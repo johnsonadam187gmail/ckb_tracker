@@ -229,14 +229,19 @@ if not st.session_state.logged_in_user:
 
 # --- LOGGED IN VIEW ---
 user = st.session_state.logged_in_user
-st.title(f"👤 Welcome, {user['first_name']} {user['last_name']}!")
 
-# Logout button in sidebar
-with st.sidebar:
-    if st.button("🚪 Logout"):
+# Header with logout button
+col1, col2 = st.columns([6, 1])
+with col1:
+    st.title(f"👤 Welcome, {user['first_name']} {user['last_name']}!")
+with col2:
+    st.write("")
+    st.write("")
+    if st.button("🚪 Logout", type="secondary"):
         logout()
 
-    st.divider()
+# Sidebar with quick info
+with st.sidebar:
     st.markdown("### 📋 Quick Info")
     st.markdown(f"**Email:** {user['email']}")
     st.markdown(f"**Rank:** {user.get('rank', 'Not set')}")
