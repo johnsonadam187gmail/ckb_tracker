@@ -146,6 +146,36 @@ class TermTarget(Base):
     term = relationship("Term")
 
 
+class UserTargetAdjustment(Base):
+    """Stores manual target point adjustments for individual users.
+
+    Allows admins to add bonus/penalty points or custom targets for specific users
+    beyond the standard term-based targets.
+    """
+
+    __tablename__ = "user_target_adjustments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_uuid = Column(
+        String, ForeignKey("users.user_uuid"), nullable=False, index=True
+    )
+    term_id = Column(Integer, ForeignKey("terms.id"), nullable=False, index=True)
+    adjustment = Column(
+        Float, nullable=False
+    )  # Can be positive (bonus) or negative (penalty)
+    reason = Column(Text, nullable=True)  # Optional explanation for the adjustment
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_by = Column(String, nullable=True)  # Admin who made the adjustment
+
+    # Relationships
+    user = relationship("User")
+    term = relationship("Term")
+
+    __table_args__ = (
+        UniqueConstraint("user_uuid", "term_id", name="_user_term_adjustment_uc"),
+    )
+
+
 class GymLocation(Base):
     __tablename__ = "gym_locations"
     id = Column(Integer, primary_key=True, index=True)

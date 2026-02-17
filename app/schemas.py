@@ -122,6 +122,32 @@ class TermTargetUpdate(BaseModel):
     target: float  # For changing the performance number
 
 
+# --- User Target Adjustment Schemas ---
+class UserTargetAdjustmentBase(BaseModel):
+    user_uuid: str
+    term_id: int
+    adjustment: float  # Can be positive or negative
+    reason: Optional[str] = None
+
+
+class UserTargetAdjustmentCreate(UserTargetAdjustmentBase):
+    pass
+
+
+class UserTargetAdjustmentResponse(UserTargetAdjustmentBase):
+    id: int
+    created_at: datetime
+    created_by: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class UserTargetAdjustmentUpdate(BaseModel):
+    adjustment: float
+    reason: Optional[str] = None
+
+
 # --- Gym Location Schemas ---
 class GymBase(BaseModel):
     name: str

@@ -858,6 +858,144 @@ if check_password():
                 st.dataframe(
                     pd.DataFrame(targ_res.json()), width="stretch", hide_index=True
                 )
+
+            st.divider()
+            st.subheader("🎯 Manual User Target Adjustments")
+            st.caption(
+                "Add bonus/penalty points or custom target adjustments for individual users"
+            )
+
+            # Fetch users and terms for the adjustment form
+            users_res = requests.get(f"{BASE_URL}/users/")
+            if users_res.status_code == 200:
+                users_list = users_res.json()
+                user_map = {
+                    f"{u['first_name']} {u['last_name']} ({u['email']})": u["user_uuid"]
+                    for u in users_list
+                    if u.get("is_current", True)
+                }
+
+                # Create subtabs for Add and View
+                adj_tab_add, adj_tab_view = st.tabs(
+                    ["➕ Add Adjustment", "📋 View Adjustments"]
+                )
+
+                with adj_tab_add:
+                    with st.form("user_target_adjustment_form"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            adj_user = st.selectbox(
+                                "Select User", list(user_map.keys()), key="adj_user"
+                            )
+                            adj_term = st.selectbox(
+                                "Term", list(term_map.keys()), key="adj_term"
+                            )
+                        with col2:
+                            adj_amount = st.number_input(
+                                "Adjustment Amount",
+                                min_value=-1000.0,
+                                max_value=1000.0,
+                                value=0.0,
+                                step=0.5,
+                                help="Positive for bonus points, negative for penalties",
+                            )
+                            adj_reason = st.text_input(
+                                "Reason (optional)",
+                                placeholder="e.g., Competition winner, Attendance bonus",
+                            )
+
+                        submitted = st.form_submit_button(
+                            "💾 Save Adjustment", type="primary"
+                        )
+                        if submitted:
+                            try:
+                                response = requests.post(
+                                    f"{BASE_URL}/user-target-adjustments/",
+                                    json={
+                                        "user_uuid": user_map[adj_user],
+                                        "term_id": term_map[adj_term],
+                                        "adjustment": adj_amount,
+                                        "reason": adj_reason if adj_reason else None,
+                                    },
+                                )
+                                if response.status_code == 200:
+                                    st.success(f"✅ Adjustment saved successfully!")
+                                    st.rerun()
+                                else:
+                                    error_detail = response.json().get(
+                                        "detail", "Unknown error"
+                                    )
+                                    st.error(
+                                        f"❌ Failed to save adjustment: {error_detail}"
+                                    )
+                            except Exception as e:
+                                st.error(f"⚠️ Error: {str(e)}")
+
+                with adj_tab_view:
+                    # Fetch all adjustments
+                    try:
+                        adj_res = requests.get(f"{BASE_URL}/user-target-adjustments/")
+                        if adj_res.status_code == 200:
+                            adjustments = adj_res.json()
+                            if adjustments:
+                                # Create a readable dataframe
+                                adj_data = []
+                                for adj in adjustments:
+                                    user_info = next(
+                                        (
+                                            u
+                                            for u in users_list
+                                            if u["user_uuid"] == adj["user_uuid"]
+                                        ),
+                                        {},
+                                    )
+                                    term_info = next(
+                                        (
+                                            t
+                                            for t in terms_res.json()
+                                            if t["id"] == adj["term_id"]
+                                        ),
+                                        {},
+                                    )
+                                    adj_data.append(
+                                        {
+                                            "ID": adj["id"],
+                                            "User": f"{user_info.get('first_name', '')} {user_info.get('last_name', '')}",
+                                            "Term": term_info.get(
+                                                "term_name", "Unknown"
+                                            ),
+                                            "Adjustment": adj["adjustment"],
+                                            "Reason": adj.get("reason", "-"),
+                                            "Created": adj["created_at"][:10]
+                                            if adj.get("created_at")
+                                            else "-",
+                                        }
+                                    )
+
+                                df_adj = pd.DataFrame(adj_data)
+                                st.dataframe(df_adj, width="stretch", hide_index=True)
+
+                                # Summary metrics
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    total_adj = len(adjustments)
+                                    st.metric("Total Adjustments", total_adj)
+                                with col2:
+                                    positive_adj = sum(
+                                        1 for a in adjustments if a["adjustment"] > 0
+                                    )
+                                    st.metric("Bonus Adjustments", positive_adj)
+                                with col3:
+                                    negative_adj = sum(
+                                        1 for a in adjustments if a["adjustment"] < 0
+                                    )
+                                    st.metric("Penalty Adjustments", negative_adj)
+                            else:
+                                st.info("No manual adjustments have been created yet.")
+                    except Exception as e:
+                        st.error(f"Error loading adjustments: {str(e)}")
+            else:
+                st.error("Could not load users for adjustment form")
         else:
             st.warning("Create a Term first before setting targets.")
 
