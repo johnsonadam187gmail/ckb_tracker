@@ -168,7 +168,7 @@ def load_css():
     # Add base text color rule to ensure text changes with theme
     text_color_rule = """
     /* Base text color for all content */
-    .stApp, .stApp p, .stApp span, .stApp label, .stApp div {
+    .stApp, .stApp *, .stApp p, .stApp span, .stApp label, .stApp div, .stApp li {
         color: var(--text-primary) !important;
     }
     
@@ -179,6 +179,49 @@ def load_css():
     
     /* Ensure Streamlit text elements use theme colors */
     .stMarkdown, .stText {
+        color: var(--text-primary) !important;
+    }
+    
+    /* Tables and DataFrames */
+    .stDataFrame, .stTable, [data-testid="stDataFrameResizable"], [data-testid="stTable"] {
+        color: var(--text-primary) !important;
+    }
+    .stDataFrame td, .stDataFrame th, .stTable td, .stTable th {
+        color: var(--text-primary) !important;
+        background-color: var(--bg-secondary) !important;
+    }
+    
+    /* Streamlit native elements */
+    [data-testid="stMetricValue"], [data-testid="stMetricLabel"], [data-testid="stMetricDelta"] {
+        color: var(--text-primary) !important;
+    }
+    
+    /* Form inputs */
+    .stTextInput input, .stNumberInput input, .stSelectbox, .stMultiselect, .stTextArea textarea {
+        color: var(--text-primary) !important;
+        background-color: var(--input-background) !important;
+    }
+    
+    /* Buttons */
+    .stButton button, button[kind="primary"], button[kind="secondary"] {
+        color: var(--button-text) !important;
+    }
+    
+    /* Expander and tabs */
+    [data-testid="stExpander"], [data-testid="stTabs"] {
+        color: var(--text-primary) !important;
+    }
+    
+    /* Plotly charts - ensure dark background */
+    .js-plotly-plot .plotly {
+        background-color: transparent !important;
+    }
+    
+    /* Sidebar specific */
+    section[data-testid="stSidebar"] {
+        background-color: var(--sidebar-background) !important;
+    }
+    section[data-testid="stSidebar"] * {
         color: var(--text-primary) !important;
     }
     """
