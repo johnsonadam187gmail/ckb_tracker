@@ -41,33 +41,43 @@ def validate_password(password):
 # Function to load CSS files
 def load_css():
     """Load custom CSS files for styling"""
-    css_files = [
-        "assets/style.css",
-        "assets/dark-theme.css"
-        if st.session_state.get("theme", "dark") == "dark"
-        else "assets/light-theme.css",
-    ]
-
+    # Load base styles
+    css_path = Path(__file__).parent.parent / "assets/style.css"
     css_content = ""
-    for css_file in css_files:
-        # Go up one directory level since we're in pages/
-        css_path = Path(__file__).parent.parent / css_file
-        if css_path.exists():
-            with open(css_path) as f:
-                css_content += f.read()
+    if css_path.exists():
+        with open(css_path) as f:
+            css_content = f.read()
 
-    # Apply theme data attribute
+    # Load theme-specific variables
     theme = st.session_state.get("theme", "dark")
-    css_content = f"""
+    theme_file = (
+        "assets/dark-theme.css" if theme == "dark" else "assets/light-theme.css"
+    )
+    theme_path = Path(__file__).parent.parent / theme_file
+
+    theme_vars = ""
+    if theme_path.exists():
+        with open(theme_path) as f:
+            theme_css = f.read()
+            # Extract :root variables
+            import re
+
+            root_match = re.search(r":root\s*\{([^}]+)\}", theme_css, re.DOTALL)
+            if root_match:
+                theme_vars = root_match.group(1).strip()
+
+    # Combine styles with theme variables in :root
+    combined_css = f"""
     <style>
     :root {{
-        data-theme: "{theme}";
+        {theme_vars}
     }}
+    
     {css_content}
     </style>
     """
 
-    st.markdown(css_content, unsafe_allow_html=True)
+    st.markdown(combined_css, unsafe_allow_html=True)
 
 
 # Initialize theme in session state
@@ -137,13 +147,30 @@ def check_password():
         return True
 
 
+# --- LOGOUT FUNCTION ---
+def logout():
+    """Log out the current admin user"""
+    if "password_correct" in st.session_state:
+        del st.session_state["password_correct"]
+    st.rerun()
+
+
 # --- PAGE EXECUTION ---
 if check_password():
     # --- CONFIGURATION ---
     BASE_URL = "http://127.0.0.1:8000"
 
     st.set_page_config(page_title="Management Console", layout="wide", page_icon="⚙️")
-    st.title("⚙️ Management Console")
+
+    # Header with logout button
+    col1, col2 = st.columns([6, 1])
+    with col1:
+        st.title("⚙️ Management Console")
+    with col2:
+        st.write("")
+        st.write("")
+        if st.button("🚪 Logout", type="secondary"):
+            logout()
 
     # --- HELPER: API REQUEST HANDLER ---
     def handle_request(method, endpoint, data=None):
@@ -175,7 +202,6 @@ if check_password():
         tab_passwords,
         tab_performance,
         tab_feedback,
-        tab_kiosk,
     ) = st.tabs(
         [
             "🥋 User Admin",
@@ -187,7 +213,6 @@ if check_password():
             "🔐 Student Passwords",
             "📈 Performance Analytics",
             "📊 Feedback Analytics",
-            "📱 Kiosk Management",
         ]
     )
 
@@ -2175,106 +2200,6 @@ if check_password():
 
         except Exception as e:
             st.error(f"Error loading feedback analytics: {str(e)}")
-
-    # --- 9. KIOSK MANAGEMENT TAB ---
-    with tab_kiosk:
-        st.header("📱 Kiosk PIN Management")
-        st.markdown(
-            "Manage the PIN that students use to access the mat-side check-in kiosk. "
-            "The kiosk allows students to self check-in without individual login credentials."
-        )
-
-        st.info("Current default PIN: **1234** (change immediately for security)")
-
-        st.divider()
-
-        # Change PIN section
-        st.subheader("🔐 Change Kiosk PIN")
-        st.write("PIN must be 4-6 digits (numbers only)")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            current_pin = st.text_input(
-                "Current PIN",
-                type="password",
-                max_chars=6,
-                placeholder="Enter current PIN",
-            )
-
-        with col2:
-            new_pin = st.text_input(
-                "New PIN (4-6 digits)",
-                type="password",
-                max_chars=6,
-                placeholder="Enter new PIN",
-            )
-            confirm_pin = st.text_input(
-                "Confirm New PIN",
-                type="password",
-                max_chars=6,
-                placeholder="Confirm new PIN",
-            )
-
-        if st.button("Update PIN", type="primary"):
-            # Validation
-            if not current_pin or not new_pin or not confirm_pin:
-                st.error("Please fill in all PIN fields")
-            elif new_pin != confirm_pin:
-                st.error("New PINs do not match")
-            elif len(new_pin) < 4 or len(new_pin) > 6:
-                st.error("PIN must be 4-6 digits")
-            elif not new_pin.isdigit():
-                st.error("PIN must contain only numbers")
-            else:
-                try:
-                    response = requests.put(
-                        f"{BASE_URL}/kiosk/update-pin",
-                        json={
-                            "current_pin": current_pin,
-                            "new_pin": new_pin,
-                        },
-                        timeout=5,
-                    )
-
-                    if response.status_code == 200:
-                        st.success("✅ PIN updated successfully!")
-                        # Clear the form
-                        st.rerun()
-                    elif response.status_code == 401:
-                        st.error("❌ Current PIN is incorrect")
-                    else:
-                        error_detail = response.json().get("detail", "Unknown error")
-                        st.error(f"❌ Failed to update PIN: {error_detail}")
-
-                except Exception as e:
-                    st.error(f"⚠️ Error connecting to server: {str(e)}")
-
-        st.divider()
-
-        # Help section
-        st.subheader("ℹ️ About the Kiosk System")
-        st.markdown(
-            """
-            **How it works:**
-            1. Students enter the gym PIN on the tablet landing page
-            2. They search for their name and select themselves
-            3. They check in for the class (creates PENDING status)
-            4. Teacher confirms attendance via the Teacher Dashboard
-
-            **Security Notes:**
-            - Change the default PIN immediately
-            - Use a PIN that's easy to remember but not obvious
-            - The PIN is stored securely (hashed with Argon2)
-            - Kiosk sessions expire after 5 minutes of inactivity
-
-            **Reset PIN:**
-            If you forget the PIN, run the migration script to reset to default (1234):
-            ```
-            python migrate_mat_side_workflow.py
-            ```
-            """
-        )
 
 else:
     st.stop()  # Prevents the rest of the page from running

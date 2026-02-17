@@ -347,22 +347,3 @@ class ClassFeedback(Base):
     user = relationship("User", foreign_keys=[user_uuid])
     attendance = relationship("FactAttendance", backref="feedback")
     class_instance = relationship("ClassInstance", backref="feedback_records")
-
-
-class KioskAuth(Base):
-    """Stores the kiosk PIN for student check-in mode.
-
-    The kiosk PIN allows students to access the self check-in interface
-    without requiring individual login credentials.
-    """
-
-    __tablename__ = "kiosk_auth"
-
-    id = Column(Integer, primary_key=True, index=True)
-    pin_hash = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
