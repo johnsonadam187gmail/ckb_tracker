@@ -40,19 +40,32 @@ def load_css():
     if theme_path.exists():
         with open(theme_path) as f:
             theme_css = f.read()
+
             # Extract the entire :root[data-theme="X"], .X-theme { ... } block content
-            # and convert it to plain :root { ... }
-            pattern = (
+            root_pattern = (
                 r":root\[data-theme=\""
                 + theme
                 + r"\"\],\s*\."
                 + theme
-                + r"-theme\s*\{([^}]*)\}"
+                + r"-theme\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}"
             )
-            match = re.search(pattern, theme_css, re.DOTALL)
-            if match:
-                theme_vars = match.group(1).strip()
-                theme_css_content = f":root {{\n{theme_vars}\n}}"
+            root_match = re.search(root_pattern, theme_css, re.DOTALL)
+            if root_match:
+                theme_vars = root_match.group(1).strip()
+                theme_css_content = f":root {{\n{theme_vars}\n}}\n\n"
+
+            # Extract and convert all [data-theme="X"] selectors to apply directly
+            # Replace [data-theme="X"] prefix with nothing (apply directly)
+            selector_pattern = r'\[data-theme="' + theme + r'"\]\s+'
+            theme_rules = re.sub(selector_pattern, "", theme_css)
+
+            # Remove the :root block we already extracted
+            theme_rules = re.sub(root_pattern, "", theme_rules, flags=re.DOTALL)
+
+            # Clean up any remaining empty selectors or duplicates
+            theme_rules = re.sub(r"\n\s*\n+", "\n\n", theme_rules)
+
+            theme_css_content += theme_rules
 
     # Combine styles
     combined_css = f"""
