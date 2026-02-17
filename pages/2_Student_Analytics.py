@@ -67,10 +67,30 @@ def load_css():
 
             theme_css_content += theme_rules
 
+    # Add base text color rule to ensure text changes with theme
+    text_color_rule = """
+    /* Base text color for all content */
+    .stApp, .stApp p, .stApp span, .stApp label, .stApp div {
+        color: var(--text-primary) !important;
+    }
+    
+    /* Headings */
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
+        color: var(--text-primary) !important;
+    }
+    
+    /* Ensure Streamlit text elements use theme colors */
+    .stMarkdown, .stText {
+        color: var(--text-primary) !important;
+    }
+    """
+
     # Combine styles
     combined_css = f"""
     <style>
     {theme_css_content}
+    
+    {text_color_rule}
 
     {css_content}
     </style>
