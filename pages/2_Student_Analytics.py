@@ -20,6 +20,8 @@ st.set_page_config(page_title="Student Portal", layout="wide", page_icon="👤")
 # Function to load CSS files
 def load_css():
     """Load custom CSS files for styling"""
+    import re
+
     # Load base styles
     css_path = Path(__file__).parent.parent / "assets/style.css"
     css_content = ""
@@ -27,31 +29,35 @@ def load_css():
         with open(css_path) as f:
             css_content = f.read()
 
-    # Load theme-specific variables
+    # Load theme-specific CSS
     theme = st.session_state.get("theme", "dark")
     theme_file = (
         "assets/dark-theme.css" if theme == "dark" else "assets/light-theme.css"
     )
     theme_path = Path(__file__).parent.parent / theme_file
 
-    theme_vars = ""
+    theme_css_content = ""
     if theme_path.exists():
         with open(theme_path) as f:
             theme_css = f.read()
-            # Extract :root variables
-            import re
+            # Extract the entire :root[data-theme="X"], .X-theme { ... } block content
+            pattern = (
+                r":root\[data-theme=\""
+                + theme
+                + r"\"\],\s*\."
+                + theme
+                + r"-theme\s*\{([^}]*)\}"
+            )
+            match = re.search(pattern, theme_css, re.DOTALL)
+            if match:
+                theme_vars = match.group(1).strip()
+                theme_css_content = f":root {{\n{theme_vars}\n}}"
 
-            root_match = re.search(r":root\s*\{([^}]+)\}", theme_css, re.DOTALL)
-            if root_match:
-                theme_vars = root_match.group(1).strip()
-
-    # Combine styles with theme variables in :root
+    # Combine styles
     combined_css = f"""
     <style>
-    :root {{
-        {theme_vars}
-    }}
-    
+    {theme_css_content}
+
     {css_content}
     </style>
     """
