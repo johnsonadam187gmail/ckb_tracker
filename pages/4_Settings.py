@@ -176,6 +176,7 @@ if check_password():
         tab_performance,
         tab_feedback,
         tab_kiosk,
+        tab_database,
     ) = st.tabs(
         [
             "🥋 User Admin",
@@ -188,6 +189,7 @@ if check_password():
             "📈 Performance Analytics",
             "📊 Feedback Analytics",
             "📱 Kiosk Management",
+            "🗄️ Database",
         ]
     )
 
@@ -2272,6 +2274,326 @@ if check_password():
             If you forget the PIN, run the migration script to reset to default (1234):
             ```
             python migrate_mat_side_workflow.py
+            ```
+            """
+        )
+
+    # --- 11. DATABASE MANAGEMENT ---
+    with tab_database:
+        st.header("🗄️ Database Management")
+        st.caption("Export, backup, restore, and reset database operations")
+
+        # Fetch database stats
+        try:
+            stats_res = requests.get(f"{BASE_URL}/database/stats")
+            if stats_res.status_code == 200:
+                stats = stats_res.json()
+
+                # Statistics Section
+                st.subheader("📊 Database Statistics")
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Database Size", f"{stats['size_mb']:.2f} MB")
+                with col2:
+                    total_records = sum(stats["record_counts"].values())
+                    st.metric("Total Records", total_records)
+                with col3:
+                    st.metric("Users", stats["record_counts"]["users"])
+                with col4:
+                    st.metric("Attendance", stats["record_counts"]["attendance"])
+
+                with st.expander("View Detailed Statistics"):
+                    st.json(stats["record_counts"])
+                    st.caption(f"Database path: {stats['database_path']}")
+                    if stats["last_backup"]:
+                        st.caption(f"Last backup: {stats['last_backup']}")
+                    else:
+                        st.caption("Last backup: Never")
+            else:
+                st.error("Failed to load database statistics")
+        except Exception as e:
+            st.error(f"Error loading stats: {e}")
+
+        st.divider()
+
+        # Export Section
+        st.subheader("💾 Export")
+
+        col_export1, col_export2 = st.columns(2)
+
+        with col_export1:
+            st.caption("Create a seed file from current database")
+            if st.button("📦 Create Seed File", use_container_width=True):
+                try:
+                    with st.spinner("Creating seed file..."):
+                        response = requests.post(f"{BASE_URL}/database/export-seed")
+                        if response.status_code == 200:
+                            result = response.json()
+                            st.success(f"✅ Seed file created: {result['filename']}")
+                            st.json(result["record_counts"])
+                        else:
+                            st.error(f"Failed to create seed file: {response.text}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        with col_export2:
+            st.caption("Download database backup")
+            if st.button("💾 Create Backup", use_container_width=True):
+                try:
+                    with st.spinner("Creating backup..."):
+                        response = requests.post(f"{BASE_URL}/database/create-backup")
+                        if response.status_code == 200:
+                            result = response.json()
+                            st.success(f"✅ Backup created: {result['filename']}")
+                            st.caption(f"Size: {result['size_mb']:.2f} MB")
+                        else:
+                            st.error(f"Failed to create backup: {response.text}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        # Available seeds and backups
+        col_seeds, col_backups = st.columns(2)
+
+        with col_seeds:
+            st.caption("Available Seed Files")
+            try:
+                seeds_res = requests.get(f"{BASE_URL}/database/list-seeds")
+                if seeds_res.status_code == 200:
+                    seeds_data = seeds_res.json()
+                    if seeds_data["seeds"]:
+                        for seed in seeds_data["seeds"][:5]:  # Show last 5
+                            col_s_name, col_s_download = st.columns([3, 1])
+                            with col_s_name:
+                                st.text(f"📄 {seed['filename']}")
+                                st.caption(
+                                    f"{seed['size_kb']:.0f} KB • {seed['created_at'][:10]}"
+                                )
+                            with col_s_download:
+                                if st.button("⬇️", key=f"dl_seed_{seed['filename']}"):
+                                    # Trigger download
+                                    st.markdown(
+                                        f"<a href='{BASE_URL}/database/download-seed/{seed['filename']}' download>Click here if download doesn't start</a>",
+                                        unsafe_allow_html=True,
+                                    )
+                    else:
+                        st.info("No seed files available")
+                else:
+                    st.error("Failed to load seeds")
+            except Exception as e:
+                st.error(f"Error loading seeds: {e}")
+
+        with col_backups:
+            st.caption("Available Backups")
+            try:
+                backups_res = requests.get(f"{BASE_URL}/database/list-backups")
+                if backups_res.status_code == 200:
+                    backups_data = backups_res.json()
+                    if backups_data["backups"]:
+                        for backup in backups_data["backups"][:5]:  # Show last 5
+                            col_b_name, col_b_download = st.columns([3, 1])
+                            with col_b_name:
+                                st.text(f"💾 {backup['filename']}")
+                                st.caption(
+                                    f"{backup['size_mb']:.2f} MB • {backup['created_at'][:10]}"
+                                )
+                            with col_b_download:
+                                if st.button(
+                                    "⬇️", key=f"dl_backup_{backup['filename']}"
+                                ):
+                                    st.markdown(
+                                        f"<a href='{BASE_URL}/database/download-backup/{backup['filename']}' download>Click here if download doesn't start</a>",
+                                        unsafe_allow_html=True,
+                                    )
+                    else:
+                        st.info("No backups available")
+                else:
+                    st.error("Failed to load backups")
+            except Exception as e:
+                st.error(f"Error loading backups: {e}")
+
+        st.divider()
+
+        # Restore Section
+        st.subheader("📥 Restore Database")
+        st.warning(
+            "⚠️ Restoring will replace all current data. Make sure you have a backup first!"
+        )
+
+        restore_method = st.radio(
+            "Restore method:",
+            ["Upload file", "From existing backup/seed"],
+            horizontal=True,
+        )
+
+        if restore_method == "Upload file":
+            uploaded_file = st.file_uploader(
+                "Upload .json (seed) or .db (backup) file",
+                type=["json", "db"],
+                key="restore_upload",
+            )
+
+            if uploaded_file:
+                confirm_restore = st.text_input(
+                    "Type 'RESTORE DATABASE' to confirm:", key="confirm_restore_upload"
+                )
+
+                if st.button("🔄 Restore from Upload", type="primary"):
+                    if confirm_restore == "RESTORE DATABASE":
+                        try:
+                            with st.spinner("Restoring database..."):
+                                files = {
+                                    "file": (
+                                        uploaded_file.name,
+                                        uploaded_file.getvalue(),
+                                        uploaded_file.type,
+                                    )
+                                }
+                                data = {"confirm_phrase": confirm_restore}
+                                response = requests.post(
+                                    f"{BASE_URL}/database/restore",
+                                    files=files,
+                                    data=data,
+                                )
+                                if response.status_code == 200:
+                                    st.success("✅ Database restored successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"Restore failed: {response.text}")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                    else:
+                        st.error("Please type 'RESTORE DATABASE' to confirm")
+
+        else:  # From existing backup/seed
+            try:
+                # Get available files
+                seeds_res = requests.get(f"{BASE_URL}/database/list-seeds")
+                backups_res = requests.get(f"{BASE_URL}/database/list-backups")
+
+                options = []
+                if seeds_res.status_code == 200:
+                    for seed in seeds_res.json()["seeds"]:
+                        options.append(f"📄 Seed: {seed['filename']}")
+                if backups_res.status_code == 200:
+                    for backup in backups_res.json()["backups"]:
+                        options.append(f"💾 Backup: {backup['filename']}")
+
+                if options:
+                    selected_file = st.selectbox("Select file to restore:", options)
+
+                    if selected_file:
+                        confirm_restore = st.text_input(
+                            "Type 'RESTORE DATABASE' to confirm:",
+                            key="confirm_restore_existing",
+                        )
+
+                        if st.button("🔄 Restore Selected File", type="primary"):
+                            if confirm_restore == "RESTORE DATABASE":
+                                try:
+                                    # Extract filename
+                                    filename = selected_file.split(": ")[1]
+
+                                    with st.spinner("Restoring database..."):
+                                        response = requests.post(
+                                            f"{BASE_URL}/database/restore-from-backup/{filename}",
+                                            data={"confirm_phrase": confirm_restore},
+                                        )
+                                        if response.status_code == 200:
+                                            st.success(
+                                                "✅ Database restored successfully!"
+                                            )
+                                            st.rerun()
+                                        else:
+                                            st.error(f"Restore failed: {response.text}")
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+                            else:
+                                st.error("Please type 'RESTORE DATABASE' to confirm")
+                else:
+                    st.info("No backup or seed files available")
+            except Exception as e:
+                st.error(f"Error loading files: {e}")
+
+        st.divider()
+
+        # Reset Database Section (Danger Zone)
+        st.subheader("🔄 Reset Database")
+        st.error("🔴 DANGER ZONE: This will permanently delete all data!")
+
+        reset_mode = st.radio(
+            "Reset to:", ["Empty (roles only)", "Load from seed file"], key="reset_mode"
+        )
+
+        selected_seed = None
+        if reset_mode == "Load from seed file":
+            try:
+                seeds_res = requests.get(f"{BASE_URL}/database/list-seeds")
+                if seeds_res.status_code == 200 and seeds_res.json()["seeds"]:
+                    seed_files = [s["filename"] for s in seeds_res.json()["seeds"]]
+                    selected_seed = st.selectbox("Select seed file:", seed_files)
+                else:
+                    st.warning("No seed files available. Create one first.")
+            except Exception as e:
+                st.error(f"Error loading seeds: {e}")
+
+        st.checkbox("I understand this will delete all data", key="reset_confirm_check")
+
+        confirm_reset = st.text_input(
+            "Type 'RESET DATABASE' to confirm:", key="confirm_reset"
+        )
+
+        if st.button("🗑️ RESET DATABASE", type="secondary"):
+            if not st.session_state.get("reset_confirm_check"):
+                st.error("Please check the confirmation checkbox")
+            elif confirm_reset != "RESET DATABASE":
+                st.error("Please type 'RESET DATABASE' exactly to confirm")
+            else:
+                try:
+                    with st.spinner("Resetting database..."):
+                        mode = "empty" if reset_mode == "Empty (roles only)" else "seed"
+                        payload = {"mode": mode, "confirm_phrase": confirm_reset}
+                        if selected_seed:
+                            payload["seed_file"] = selected_seed
+
+                        response = requests.post(
+                            f"{BASE_URL}/database/reset", data=payload
+                        )
+                        if response.status_code == 200:
+                            result = response.json()
+                            st.success(f"✅ {result['message']}")
+                            st.rerun()
+                        else:
+                            st.error(f"Reset failed: {response.text}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+        st.divider()
+
+        # Scheduled Backups Info
+        st.subheader("⏰ Scheduled Backups")
+        st.info(
+            """
+            To set up automatic scheduled backups, add a cron job:
+            
+            **Linux/Mac:**
+            ```
+            crontab -e
+            ```
+            Add this line for daily backups at 2 AM:
+            ```
+            0 2 * * * cd /path/to/ckb_tracker && python scripts/backup_db.py
+            ```
+            
+            **Windows (Task Scheduler):**
+            Create a task that runs daily at 2 AM:
+            ```
+            python scripts/backup_db.py
+            ```
+            
+            **View all backups:**
+            ```
+            python scripts/backup_db.py --list
             ```
             """
         )

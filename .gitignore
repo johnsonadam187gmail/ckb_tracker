@@ -70,9 +70,11 @@ desktop.ini
 *.bak
 *.swp
 *~
-backups/
+backups/*
+!backups/.gitkeep
 Lib/
 Scripts/
+!scripts/
 
 # ==========================================
 # 7. LOGS AND DATABASES

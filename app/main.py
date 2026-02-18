@@ -22,6 +22,7 @@ from .routers import (
     auth,
     feedback,
     kiosk,
+    database as database_router,
 )
 
 # Initialize the FastAPI app
@@ -45,6 +46,7 @@ app.include_router(lessons.router)
 app.include_router(auth.router)
 app.include_router(feedback.router)
 app.include_router(kiosk.router)
+app.include_router(database_router.router)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
